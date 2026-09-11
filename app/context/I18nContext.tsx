@@ -13,8 +13,7 @@ export const I18nProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [language, setLanguage] = useState<Language>(() => {
     const stored = localStorage.getItem('language') as Language;
     if (stored === 'zh' || stored === 'en' || stored === 'ja' || stored === 'ko' || stored === 'ru' || stored === 'tr') return stored;
-    if (typeof navigator !== 'undefined' && navigator.language?.startsWith('ru')) return 'ru';
-    if (typeof navigator !== 'undefined' && navigator.language?.startsWith('tr')) return 'tr';
+    // First launch always English; users can switch in Settings.
     return 'en';
   });
 
