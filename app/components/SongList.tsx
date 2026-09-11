@@ -715,7 +715,14 @@ const SongItem: React.FC<SongItemProps> = ({
                     </div>
                     <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
                         <span>{song.ditModel === 'imported-audio' ? t('importedAudio') : 'MiniMax Music 3'}</span>
-                        {song.nativeReplayAvailable && <span title={t('replayAvailable')} className="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide dark:bg-white/10">replay</span>}
+                        {song.nativeReplayAvailable && (
+                            <span
+                                title={t('replayAvailable')}
+                                className="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide dark:bg-white/10"
+                            >
+                                {t('replayBadge')}
+                            </span>
+                        )}
                     </div>
                     <p className="text-xs text-zinc-500 dark:text-zinc-500 line-clamp-2 pt-1 font-medium max-w-2xl">
                         {captionSummary(song.style)}
