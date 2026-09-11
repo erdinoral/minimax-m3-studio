@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Boxes, Cloud, Cpu, Github, Image as ImageIcon, Info, Monitor, User as UserIcon, X } from 'lucide-react';
+import { Boxes, Cloud, Cpu, Github, Heart, Image as ImageIcon, Info, Monitor, User as UserIcon, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
 import type { Language } from '../i18n/translations';
@@ -220,6 +220,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <p>{t('localAIMusicGenerator')}</p>
                   <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('poweredBy')}</p>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    window.dispatchEvent(new CustomEvent('mm3:open-support'));
+                  }}
+                  className="support-rainbow-btn inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-white"
+                >
+                  <Heart size={16} className="fill-white" />
+                  {t('supportTheAuthor')}
+                </button>
 
                 <div className="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-700/50">
                   <p className="font-medium text-zinc-900 dark:text-white">{t('aboutForkTitle')}</p>

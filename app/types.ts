@@ -86,6 +86,8 @@ export interface Music3Request {
   mp3_bitrate: number;
   /** Library title only — never sent to the engine. */
   title?: string;
+  /** Create-tab provenance (simple / studio / instrumental / cover). Library-only. */
+  create_mode?: 'simple' | 'studio' | 'instrumental' | 'cover' | string;
 }
 
 export interface Music3JobSong {

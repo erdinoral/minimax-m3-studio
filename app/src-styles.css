@@ -71,6 +71,32 @@ summary {
         100% { height: 20%; opacity: 0.5; }
       }
 
+      @keyframes support-rainbow-shift {
+        0% { background-position: 0% 50%; }
+        100% { background-position: 200% 50%; }
+      }
+
+      .support-rainbow-btn {
+        background-image: linear-gradient(
+          90deg,
+          #ff4d6d,
+          #ff9f1c,
+          #ffd60a,
+          #2ec4b6,
+          #4cc9f0,
+          #7b2cbf,
+          #f72585,
+          #ff4d6d
+        );
+        background-size: 200% 100%;
+        animation: support-rainbow-shift 2.8s linear infinite;
+        box-shadow: 0 8px 24px rgba(247, 37, 133, 0.28);
+      }
+
+      .support-rainbow-btn:hover {
+        filter: brightness(1.06);
+      }
+
       .music-bar-anim {
         animation: music-bars 1s ease-in-out infinite;
       }

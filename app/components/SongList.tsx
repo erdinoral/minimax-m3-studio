@@ -59,6 +59,33 @@ const getProfileBadge = (song: Song): string => {
     return song.lmModel ? PROFILE_BADGE[song.lmModel] ?? song.lmModel : 'Music3';
 };
 
+/** How the track was created (Create tab / replay), for the library row badge. */
+const lyricsLookInstrumental = (lyrics: string): boolean => {
+    const lines = lyrics.replace(/\r\n?/g, '\n').split('\n').map(line => line.trim()).filter(Boolean);
+    if (lines.length === 0) return false;
+    return lines.every(line => /^\[[^\]]+\]$/.test(line));
+};
+
+const getCreateModeBadge = (song: Song, t: (key: string) => string): { label: string; title: string } | null => {
+    const raw = song.generationParams?.create_mode;
+    const mode = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+    // Simple / Advanced are just workflows for a normal vocal track — not a song type.
+    // Only show badges that change what the track is (cover, instrumental).
+    if (mode === 'cover') {
+        return { label: t('coverMode'), title: t('createModeCoverHint') };
+    }
+    if (mode === 'instrumental') {
+        return { label: t('instrumentalMode'), title: t('createModeInstrumentalHint') };
+    }
+    if (song.ditModel === 'imported-audio') {
+        return { label: t('importedAudio'), title: t('importedAudio') };
+    }
+    if (lyricsLookInstrumental(song.lyrics || '')) {
+        return { label: t('instrumentalMode'), title: t('createModeInstrumentalHint') };
+    }
+    return null;
+};
+
 const createDragPreview = (element: HTMLElement) => {
     const clone = element.cloneNode(true) as HTMLElement;
     clone.style.width = `${element.offsetWidth}px`;
@@ -715,14 +742,17 @@ const SongItem: React.FC<SongItemProps> = ({
                     </div>
                     <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
                         <span>{song.ditModel === 'imported-audio' ? t('importedAudio') : 'MiniMax Music 3'}</span>
-                        {song.nativeReplayAvailable && (
-                            <span
-                                title={t('replayAvailable')}
-                                className="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide dark:bg-white/10"
-                            >
-                                {t('replayBadge')}
-                            </span>
-                        )}
+                        {(() => {
+                            const createBadge = getCreateModeBadge(song, t);
+                            return createBadge ? (
+                                <span
+                                    title={createBadge.title}
+                                    className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300"
+                                >
+                                    {createBadge.label}
+                                </span>
+                            ) : null;
+                        })()}
                     </div>
                     <p className="text-xs text-zinc-500 dark:text-zinc-500 line-clamp-2 pt-1 font-medium max-w-2xl">
                         {captionSummary(song.style)}

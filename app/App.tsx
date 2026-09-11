@@ -10,6 +10,7 @@ import { CoverRegenModal } from './components/CoverRegenModal';
 import { ReplayModal } from './components/ReplayModal';
 import { VideoGeneratorModal } from './components/VideoGeneratorModal';
 import { SettingsModal } from './components/SettingsModal';
+import { SupportModal } from './components/SupportModal';
 import { Song, Music3Request, Music3Job, View, Playlist } from './types';
 // Resizable panel hook
 function useResizablePanel(key: string, defaultWidth: number, min: number, max: number, direction: 'left' | 'right' = 'left') {
@@ -149,11 +150,14 @@ function AppContent() {
         window.history.pushState({}, '', '/settings');
       }
     };
+    const openSupport = () => setShowSupportModal(true);
     window.addEventListener('mm3:open-stems', open);
     window.addEventListener('mm3:open-settings', openSettings);
+    window.addEventListener('mm3:open-support', openSupport);
     return () => {
       window.removeEventListener('mm3:open-stems', open);
       window.removeEventListener('mm3:open-settings', openSettings);
+      window.removeEventListener('mm3:open-support', openSupport);
     };
   }, []);
 
@@ -333,6 +337,7 @@ function AppContent() {
 
   // Settings Modal
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showSupportModal, setShowSupportModal] = useState(false);
   // Which settings page to land on, when something asks for a particular one.
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
 
@@ -1580,6 +1585,7 @@ function AppContent() {
           onToggleTheme={toggleTheme}
           user={user}
           onOpenSettings={() => { setSettingsSection('account'); setShowSettingsModal(true); }}
+          onOpenSupport={() => setShowSupportModal(true)}
           isOpen={showLeftSidebar}
           onToggle={() => setShowLeftSidebar(!showLeftSidebar)}
         />
@@ -1668,6 +1674,7 @@ function AppContent() {
         theme={theme}
         onToggleTheme={toggleTheme}
       />
+      <SupportModal isOpen={showSupportModal} onClose={() => setShowSupportModal(false)} />
 
       {/* Mobile Details Modal */}
       {showMobileDetails && selectedSong && (

@@ -468,6 +468,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       'Match genre, mood, energy arc and approximate section structure.',
       'Do NOT quote, paraphrase, translate, or closely rewrite the reference lyrics.',
       'Invent a new title, new story, and new singable lyrics with section tags.',
+      'Caption variety: avoid stock filler; write a distinctive arrangement and concrete Sonics (~300-450 words).',
       reference ? `\nReference transcript / structure:\n---\n${reference}\n---` : '',
       direction ? `\nExtra direction from the user:\n${direction}` : '',
     ].filter(Boolean).join('\n');
@@ -552,6 +553,11 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       peak_clip: numberOrUndefined(peakClip) ?? 10,
       output_format: format,
       mp3_bitrate: numberOrUndefined(mp3Bitrate) ?? 128,
+      create_mode: mode === 'cover'
+        ? 'cover'
+        : mode === 'instrumental' || asInstrumental
+          ? 'instrumental'
+          : mode,
     };
     if (name.trim()) request.title = name.trim();
     if (coverPrompt.trim()) request.cover_prompt = coverPrompt.trim();
@@ -670,6 +676,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       'Caption fields must stay in English. Align arrangement sections with the lyric tags.',
       'BPM rule: if the styles state an explicit BPM (or tempo number), use that exact BPM in Basic Attributes. If no BPM is given, choose a suitable tempo automatically (a range or qualitative tempo is fine — do not invent a fake precise BPM).',
       'HARD Styles fidelity: every named genre, instrument, or percussion in Styles (e.g. cowbell, 808, saxophone, keman) MUST appear explicitly in Arrangement and/or Sonics & Production Profile — do not drop or replace them with generic drums.',
+      'Variety: avoid stock filler ("atmospheric pads", "driving drums", "night drive"). Invent a distinctive hook, specific secondary textures, and concrete mix moves. Aim for ~300-450 words with clear section-to-section contrast — not a short generic blurb.',
     ];
     if (instrumentLock) {
       lines.push(`HARD instrument constraints (from Styles — mandatory in Arrangement + Sonics):\n${instrumentLock}`);
@@ -697,6 +704,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       'Copy the other two fields EXACTLY from Current below — do not change their wording.',
       'Caption fields must stay in English. Strengthen musical concreteness; keep lyric section tags aligned when rewriting arrangement.',
       'HARD Styles fidelity: named instruments/genres in Styles must appear in Arrangement and/or Sonics.',
+      'Make the rewritten field more specific and less template-like: name textures, groove personality, and mix moves — avoid stock filler phrases.',
     ];
     if (instrumentLock) {
       lines.push(`HARD instrument constraints:\n${instrumentLock}`);
@@ -1298,7 +1306,10 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               <p className="mt-2 text-[11px] leading-4 text-zinc-500">{t('songIdeaHint')}</p>
               <button
                 type="button"
-                onClick={() => void askAssistant('all')}
+                onClick={() => void askAssistant('all', [
+                  assistInstruction.trim(),
+                  'Caption variety: avoid stock filler ("atmospheric pads", "driving drums"). Invent a distinctive hook, specific textures, and concrete mix moves (~300-450 words).',
+                ].filter(Boolean).join('\n\n'))}
                 disabled={assisting !== null || !assistInstruction.trim()}
                 className={`mt-3 ${CTA}`}
               >
@@ -1339,6 +1350,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                         assistInstruction.trim() || 'Instrumental track from the Styles below.',
                         'This piece is fully instrumental: no sung words, no humming, no choir, no vocal chops.',
                         'Write Global metadata, Vocal details (state instrumental + lead instrument), and Arrangement.',
+                        'Variety: avoid stock filler. Name a distinctive lead texture, concrete secondary layers, and section-to-section contrast (~300-450 words).',
                       ].join('\n'), { clearCaption: true, clearLyrics: true });
                     }}
                     disabled={assisting !== null || (!assistInstruction.trim() && !stylesText.trim())}

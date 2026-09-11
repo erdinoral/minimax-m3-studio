@@ -107,6 +107,10 @@ struct CreateMusicJobRequest {
     /// What the cover should show, when the assistant already described it.
     /// Also library-only, for the same reason.
     cover_prompt: Option<String>,
+    /// Create-tab provenance for the library UI (simple / studio / instrumental / cover).
+    /// Never sent to mm-server — stamped into generation_settings only.
+    #[serde(default)]
+    create_mode: Option<String>,
 }
 
 /// The name this request goes into the library under: the user's, or one taken
@@ -3857,7 +3861,9 @@ async fn create_music_job(
         Ok(value) => value,
         Err(error) => return (StatusCode::BAD_REQUEST, Json(failed_request_job(request, engine_id, error))),
     };
-    match state.music_server.submit(mm_request.clone()).await {
+    let mut generation_settings = mm_request.clone();
+    stamp_create_mode(&mut generation_settings, request.create_mode.as_deref());
+    match state.music_server.submit(mm_request).await {
         Ok(remote) => {
             let job = MusicJob {
                 id: remote.id,
@@ -3870,7 +3876,7 @@ async fn create_music_job(
                 caption: request.caption,
                 lyrics: request.lyrics,
                 duration_seconds: request.duration_seconds,
-                generation_settings: mm_request.clone(),
+                generation_settings,
                 song: None,
                 songs: vec![],
                 message: "Submitted to mm-server. Progress is phase-only: queued, running, completed, failed, or cancelled.".into(),
@@ -3918,11 +3924,13 @@ async fn replay_music_job(
         .submit(synth_request.clone())
         .await
         .map_err(|error| api_error(StatusCode::SERVICE_UNAVAILABLE, format!("the engine refused the job: {error}")))?;
+    let mut generation_settings = synth_request.clone();
+    stamp_create_mode(&mut generation_settings, Some("replay"));
     let job = MusicJob {
         cover_prompt: None,
         id: remote.id, engine_id: PRIMARY_MUSIC_ENGINE_ID.into(), title: source_title, status: MusicJobStatus::Queued,
         dispatch: MusicJobDispatch::Local, phase: MusicJobPhase::Queued, caption, lyrics,
-        duration_seconds: synth_request.get("duration").and_then(Value::as_f64).unwrap_or_default(), generation_settings: synth_request,
+        duration_seconds: synth_request.get("duration").and_then(Value::as_f64).unwrap_or_default(), generation_settings,
         song: None, songs: vec![], message: "Submitted replay synthesis to mm-server. audio_codes are present, so the autoregressive LM stage is skipped.".into(),
     };
     state.jobs.write().await.insert(job.id.clone(), job.clone());
@@ -3967,10 +3975,12 @@ async fn create_openrouter_music_job(state: AppState, request: CreateMusicJobReq
         Ok(request) => request,
         Err(error) => return (StatusCode::BAD_REQUEST, Json(failed_request_job(request, engine_id, error.to_string()))),
     };
+    let mut generation_settings = stream_request.request.body.clone();
+    stamp_create_mode(&mut generation_settings, request.create_mode.as_deref());
     let job = MusicJob {
         id: format!("openrouter-{}", uuid_suffix()), engine_id: engine_id.clone(), cover_prompt: request.cover_prompt.clone(), title: Some(titled(&request)), status: MusicJobStatus::Running,
         dispatch: MusicJobDispatch::OpenRouter, phase: MusicJobPhase::Running, caption: request.caption, lyrics: request.lyrics,
-        duration_seconds: request.duration_seconds, generation_settings: stream_request.request.body.clone(), song: None, songs: vec![],
+        duration_seconds: request.duration_seconds, generation_settings, song: None, songs: vec![],
         message: "OpenRouter music stream started; the completed audio will be imported into the studio library.".into(),
     };
     state.jobs.write().await.insert(job.id.clone(), job.clone());
@@ -3998,7 +4008,11 @@ async fn run_openrouter_music_generation(state: AppState, job_id: String, stream
         let job = state.jobs.read().await.get(&job_id).cloned().context("cloud music job disappeared before import")?;
         let imported_song = state.library.import_generated_song(library::GeneratedSongInput {
             title: job.title.clone(),
-            metadata: serde_json::json!({ "duration_seconds": job.duration_seconds, "cover_prompt": job.cover_prompt.clone() }),
+            metadata: serde_json::json!({
+                "duration_seconds": job.duration_seconds,
+                "cover_prompt": job.cover_prompt.clone(),
+                "create_mode": job.generation_settings.get("create_mode").cloned(),
+            }),
             caption: job.caption.clone(), lyrics: job.lyrics.clone(), generation_settings: job.generation_settings.clone(),
             replay_request: None, audio_codes: None, engine_id: "openrouter".into(), profile_id: None,
             source: "openrouter_generation".into(), audio_extension: "wav", audio,
@@ -4105,6 +4119,7 @@ async fn import_completed_mm_result(state: &AppState, job: &MusicJob, job_id: &s
         // holds its default, so a 60-second track has no "duration" key at all.
         // Take the length from the job that was actually submitted.
         let extension = mm_result::audio_extension(&track.audio_content_type)?;
+        let create_mode = generation_settings.get("create_mode").cloned();
         let metadata = serde_json::json!({
             "duration_seconds": library::audio_duration_seconds(
                 &track.audio,
@@ -4115,6 +4130,7 @@ async fn import_completed_mm_result(state: &AppState, job: &MusicJob, job_id: &s
             "lm_seed": replay.get("lm_seed"),
             "output_format": replay.get("output_format"),
             "cover_prompt": job.cover_prompt.clone(),
+            "create_mode": create_mode,
         });
         let imported_song = state.library.import_generated_song(library::GeneratedSongInput {
             title: job.title.clone(), metadata, caption, lyrics, generation_settings, replay_request: Some(replay), audio_codes: Some(audio_codes),
@@ -4498,6 +4514,16 @@ fn uuid_suffix() -> String {
     uuid::Uuid::now_v7().to_string()
 }
 
+/// Library-only provenance: which Create tab produced this job.
+fn stamp_create_mode(settings: &mut Value, create_mode: Option<&str>) {
+    let Some(mode) = create_mode.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    if let Some(fields) = settings.as_object_mut() {
+        fields.insert("create_mode".into(), Value::String(mode.to_owned()));
+    }
+}
+
 fn apply_remote_status(job: &mut MusicJob, remote_status: &str) {
     match remote_status {
         "queued" => {
@@ -4602,6 +4628,7 @@ mod tests {
                 vae_model: Some("vocoder.gguf".into()),
                 ..Default::default()
             }),
+            create_mode: None,
         }, None, None, None)
         .unwrap();
         assert_eq!(body["duration"], 30.0);
@@ -4640,6 +4667,7 @@ mod tests {
                 dit_model: Some("dit.gguf".into()),
                 vae_model: Some("vocoder.gguf".into()),
             }),
+            create_mode: None,
         }, None, None, None).unwrap_err();
         assert!(error.contains("output_format"));
     }
@@ -4654,6 +4682,7 @@ mod tests {
             lm_batch_size: None, synth_batch_size: None, dit_cfg: None, peak_clip: None,
             output_format: None, mp3_bitrate: None,
             models: Some(Mm3ModelSelection { lm_model: Some("lm.gguf".into()), depth_model: Some("depth.gguf".into()), cond_model: Some("condition.gguf".into()), dit_model: Some("dit.gguf".into()), vae_model: Some("vocoder.gguf".into()) }),
+            create_mode: None,
         };
         let body = mm_request_from(&request, None, None, None).unwrap();
         assert_eq!(body["steps"], 30);
@@ -4678,6 +4707,7 @@ mod tests {
             lm_batch_size: None, synth_batch_size: None, dit_cfg: None, peak_clip: None,
             output_format: None, mp3_bitrate: None,
             models: Some(Mm3ModelSelection { lm_model: Some("lm.gguf".into()), depth_model: Some("depth.gguf".into()), cond_model: Some("condition.gguf".into()), dit_model: Some("dit.gguf".into()), vae_model: Some("vocoder.gguf".into()) }),
+            create_mode: None,
         };
         let body = mm_request_from(&request, None, None, None).unwrap();
         let lyrics = body["lyrics"].as_str().unwrap();
@@ -4701,6 +4731,7 @@ mod tests {
             steps: None, seed: None, lm_seed: None, lm_cfg: None, lm_top_k: None,
             lm_batch_size: None, synth_batch_size: None, dit_cfg: None, peak_clip: None,
             output_format: None, mp3_bitrate: None, models: None,
+            create_mode: None,
         };
         assert!(mm_request_from(&request, None, None, None).unwrap_err().contains("caption"));
     }
@@ -4773,6 +4804,7 @@ mod tests {
                 output_format: None,
                 mp3_bitrate: None,
                 models: None,
+                create_mode: None,
             },
             PRIMARY_MUSIC_ENGINE_ID.into(),
         );

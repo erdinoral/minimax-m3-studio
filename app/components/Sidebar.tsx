@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Disc, Library, Moon, Settings, SlidersHorizontal, Sun } from 'lucide-react';
+import { Disc, Heart, Library, Moon, Settings, SlidersHorizontal, Sun } from 'lucide-react';
 import { View } from '../types';
 import { useI18n } from '../context/I18nContext';
 import { ResourceMonitor } from './ResourceMonitor';
@@ -11,6 +11,7 @@ interface SidebarProps {
   onToggleTheme: () => void;
   user?: { username: string; isAdmin?: boolean; avatar_url?: string } | null;
   onOpenSettings?: () => void;
+  onOpenSupport?: () => void;
   isOpen?: boolean;
   onToggle?: () => void;
 }
@@ -108,6 +109,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleTheme,
   user,
   onOpenSettings,
+  onOpenSupport,
   isOpen = true,
   onToggle,
 }) => {
@@ -152,6 +154,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <NavItem icon={<Library size={20} />} label={t('library')} active={currentView === 'library'} onClick={() => onNavigate('library')} isExpanded={isOpen} />
           <NavItem icon={<SlidersHorizontal size={20} />} label={t('studioTools')} active={currentView === 'tools'} onClick={() => onNavigate('tools')} isExpanded={isOpen} />
           <NavItem icon={<Settings size={20} />} label={t('settings')} active={currentView === 'settings'} onClick={() => onNavigate('settings')} isExpanded={isOpen} />
+          {onOpenSupport && (
+            <button
+              type="button"
+              onClick={onOpenSupport}
+              className={`support-rainbow-btn group relative flex w-full items-center gap-3 overflow-hidden rounded-xl text-white transition-all duration-200 ${isOpen ? 'justify-start px-3 py-2.5' : 'aspect-square justify-center'}`}
+              title={t('support')}
+            >
+              <span className="shrink-0"><Heart size={20} className="fill-white" /></span>
+              {isOpen && <span className="truncate text-sm font-bold">{t('support')}</span>}
+            </button>
+          )}
 
           <div className="mt-auto flex flex-col gap-2">
             <ResourceMonitor isOpen={isOpen} />
