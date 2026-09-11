@@ -4340,12 +4340,27 @@ fn selected_local_music_engine(configuration: &StudioConfiguration) -> Option<St
         .and_then(|selection| selection.local_engine.clone())
 }
 
+/// mm-server requires a non-empty `lyrics` string. For instrumentals we send
+/// section tags only (no sung words) — matching MiniMax's instrumental skill.
+fn instrumental_lyrics_scaffold(duration_seconds: f64) -> String {
+    let seconds = if duration_seconds.is_finite() && duration_seconds > 0.0 {
+        duration_seconds
+    } else {
+        60.0
+    };
+    if seconds <= 30.0 {
+        return "[intro]\n\n[instrumental]\n\n[outro]".into();
+    }
+    if seconds <= 90.0 {
+        return "[intro]\n\n[instrumental]\n\n[instrumental]\n\n[outro]".into();
+    }
+    "[intro]\n\n[instrumental]\n\n[instrumental]\n\n[instrumental]\n\n[outro]".into()
+}
+
 fn mm_request_from(request: &CreateMusicJobRequest, selected_profile_id: Option<&str>, selected_component_ids: Option<&[String]>, manager: Option<&ModelManager>) -> Result<Value, String> {
-    // Caption always carries the style/arrangement. Lyrics are only required
-    // for a sung track: an instrumental has no words and is sent with an empty
-    // lyrics field, which is how mm-server asks MiniMax Music3 for instrumental
-    // output. The panel already refuses to submit vocal requests with empty
-    // lyrics, so an empty string here means "instrumental", not an oversight.
+    // mm-server rejects missing/empty caption OR lyrics ("caption and lyrics are
+    // required"). Instrumental tracks still need a non-empty lyrics field: section
+    // tags only, no sung words — that is MiniMax's instrumental contract.
     if request.caption.trim().is_empty() {
         return Err("styling caption is required by mm-server".into());
     }
@@ -4371,6 +4386,14 @@ fn mm_request_from(request: &CreateMusicJobRequest, selected_profile_id: Option<
             return Err("output_format must be one of: mp3, wav16, wav24, wav32".into());
         }
     }
+    let lyrics = {
+        let trimmed = request.lyrics.trim();
+        if trimmed.is_empty() {
+            instrumental_lyrics_scaffold(request.duration_seconds)
+        } else {
+            request.lyrics.clone()
+        }
+    };
     let models = match request.models.clone() {
         Some(models) => {
             let all_explicit = [models.lm_model.as_deref(), models.depth_model.as_deref(), models.cond_model.as_deref(), models.dit_model.as_deref(), models.vae_model.as_deref()]
@@ -4403,7 +4426,7 @@ fn mm_request_from(request: &CreateMusicJobRequest, selected_profile_id: Option<
     };
     let mut body = serde_json::json!({
         "caption": request.caption,
-        "lyrics": request.lyrics,
+        "lyrics": lyrics,
         "duration": request.duration_seconds,
         "lm_model": models.lm_model.expect("complete selection"),
         "depth_model": models.depth_model.expect("complete selection"),
@@ -4644,7 +4667,7 @@ mod tests {
     }
 
     #[test]
-    fn instrumental_request_is_accepted_with_an_empty_lyrics_field() {
+    fn instrumental_request_fills_section_tag_lyrics_when_empty() {
         let request = CreateMusicJobRequest {
             cover_prompt: None,
             title: None,
@@ -4657,9 +4680,14 @@ mod tests {
             models: Some(Mm3ModelSelection { lm_model: Some("lm.gguf".into()), depth_model: Some("depth.gguf".into()), cond_model: Some("condition.gguf".into()), dit_model: Some("dit.gguf".into()), vae_model: Some("vocoder.gguf".into()) }),
         };
         let body = mm_request_from(&request, None, None, None).unwrap();
-        // The empty lyrics are passed through verbatim so mm-server can produce
-        // an instrumental track, rather than being mistaken for a missing field.
-        assert_eq!(body["lyrics"], "");
+        let lyrics = body["lyrics"].as_str().unwrap();
+        // mm-server rejects empty lyrics; instrumental still needs tags.
+        assert!(!lyrics.trim().is_empty());
+        assert!(lyrics.contains("[instrumental]"));
+        assert!(!lyrics.lines().any(|line| {
+            let t = line.trim();
+            !t.is_empty() && !t.starts_with('[')
+        }));
     }
 
     #[test]

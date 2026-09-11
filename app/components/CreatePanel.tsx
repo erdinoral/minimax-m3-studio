@@ -7,6 +7,14 @@ import { joinCaption, randomExample, splitCaption } from '../services/examples';
 import { loadNativeOpenRouterCatalog, modelsForCapability, transcribeWithNativeOpenRouter } from '../services/nativeOpenRouter';
 import { appendStylesToCaption, expandStylesForCaption, orderedStyleChips, recordStylesTextChips, styleTextHasChip, toggleStyleInText } from '../services/styleChips';
 
+/** mm-server rejects empty lyrics; instrumental = section tags, no sung words. */
+function instrumentalLyricsScaffold(durationSeconds: number): string {
+  const seconds = Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : 60;
+  if (seconds <= 30) return '[intro]\n\n[instrumental]\n\n[outro]';
+  if (seconds <= 90) return '[intro]\n\n[instrumental]\n\n[instrumental]\n\n[outro]';
+  return '[intro]\n\n[instrumental]\n\n[instrumental]\n\n[instrumental]\n\n[outro]';
+}
+
 /**
  * The Music3 request form.
  *
@@ -1025,10 +1033,11 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
         return;
       }
 
+      const durationGuess = numberOrUndefined(duration) ?? 60;
       const snap = {
         ...takeCreateSnapshot(),
         instrumental: treatAsInstrumental || instrumental,
-        lyrics: treatAsInstrumental ? '' : lyrics,
+        lyrics: treatAsInstrumental ? instrumentalLyricsScaffold(durationGuess) : lyrics,
       };
       if (snap.stylesText.trim()) {
         recordStylesTextChips(snap.stylesText);
@@ -1056,7 +1065,9 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
           if (ac.signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
           let working = { ...snap };
-          let lyricsForRequest = working.instrumental ? '' : working.lyrics.trim();
+          let lyricsForRequest = working.instrumental
+            ? (working.lyrics.trim() || instrumentalLyricsScaffold(numberOrUndefined(working.duration) ?? 60))
+            : working.lyrics.trim();
 
           if (!working.instrumental && lyricsLookLikeSeed(working.lyrics)) {
             if (!working.stylesText.trim() && !working.lyrics.trim()) {

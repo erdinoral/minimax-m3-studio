@@ -1308,7 +1308,7 @@ export const en = {
     coverMode: 'Cover',
     coverModeHint: 'Upload a reference track, transcribe it, then rewrite into an original inspired song. Album artwork cover is separate.',
     instrumentalMode: 'Instrumental',
-    instrumentalModeHint: 'No vocals — styles and caption only. Lyrics are never sent.',
+    instrumentalModeHint: 'No vocals — styles and caption only. Section tags are sent automatically (mm-server requires a lyrics field).',
     instrumentalIdeaPlaceholder: 'e.g. night drive synthwave, heavy cowbell, no vocals…',
     instrumentalNeedsStyles: 'Add styles or a caption for the instrumental.',
     coverUploadAudio: 'Upload reference audio',

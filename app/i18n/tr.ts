@@ -1308,7 +1308,7 @@ export const tr = {
     coverMode: 'Cover',
     coverModeHint: 'Referans parça yükle, yazıya dök, sonra ilham alınmış orijinal şarkıya yeniden yaz. Albüm kapağı ayrıdır.',
     instrumentalMode: 'Enstrümantal',
-    instrumentalModeHint: 'Vokal yok — yalnız stil ve caption. Söz hiç gönderilmez.',
+    instrumentalModeHint: 'Vokal yok — yalnız stil ve caption. Bölüm etiketleri otomatik gider (mm-server boş lyrics kabul etmez).',
     instrumentalIdeaPlaceholder: 'örn. gece sürüşü synthwave, belirgin cowbell, vokal yok…',
     instrumentalNeedsStyles: 'Enstrümantal için stil veya caption yaz.',
     coverUploadAudio: 'Referans ses yükle',
