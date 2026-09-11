@@ -2,6 +2,7 @@ target/
 node_modules/
 venv/
 .venv/
+cache/
 dist/
 # ...except the waveform editor's own bundle, which is shipped, not built.
 !app/public/editor/dist/

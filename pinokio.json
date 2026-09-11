@@ -1,0 +1,6 @@
+{
+  "name": "minimax-m3-studio",
+  "title": "MiniMax M3 Studio",
+  "description": "Local MiniMax Music3 studio fork for Windows + NVIDIA GPUs.",
+  "icon": "icon.png"
+}
