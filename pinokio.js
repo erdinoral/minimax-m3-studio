@@ -1,9 +1,10 @@
 module.exports = {
   version: '8.0',
   title: 'MiniMax M3 Studio',
-  description: 'Local MiniMax Music3 studio — one click on Windows + NVIDIA. https://github.com/erdinoral/minimax-m3-studio',
+  description: '1-click MiniMax Music3 on your NVIDIA GPU. Write, generate, library — no npm/Rust for users. https://github.com/erdinoral/minimax-m3-studio',
   icon: 'icon.png',
   menu: async (kernel, info) => {
+    // Same Pinokio pattern as MiniMax H3 Studio: Install (default) → Start (default) → Open Studio.
     const installed = info.exists('runtime/music-server.exe')
       && info.exists('runtime/www/index.html')
       && info.exists('runtime/resources/minimaxmusic-cpp/mm-server.exe')
@@ -29,19 +30,19 @@ module.exports = {
         if (local && local.url) {
           return [{
             default: true,
-            icon: 'fa-solid fa-rocket',
-            text: 'Open Web UI',
+            icon: 'fa-solid fa-music',
+            text: 'Open M3 Studio',
             href: local.url
           }, {
             icon: 'fa-solid fa-terminal',
-            text: 'Terminal',
+            text: 'Terminal / Stop',
             href: 'start.js'
           }]
         }
         return [{
           default: true,
           icon: 'fa-solid fa-terminal',
-          text: 'Starting...',
+          text: 'Terminal',
           href: 'start.js'
         }]
       }
@@ -74,13 +75,17 @@ module.exports = {
         text: 'Update',
         href: 'update.js'
       }, {
+        icon: 'fa-solid fa-plug',
+        text: 'Install',
+        href: 'install.js'
+      }, {
         icon: 'fa-regular fa-circle-xmark',
         text: 'Reset',
-        href: 'reset.js'
+        href: 'reset.js',
+        confirm: 'Reset deletes the downloaded runtime. You can Install again after.'
       }]
     }
 
-    // First open: auto-run Install (downloads runtime, no npm for the user).
     return [{
       default: true,
       icon: 'fa-solid fa-plug',
