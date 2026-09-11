@@ -19,7 +19,7 @@ interface ReplayModalProps {
 }
 
 const CONTROL =
-  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-pink-500 dark:border-white/10 dark:bg-black/20 dark:text-white';
+  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-500 dark:border-white/10 dark:bg-black/20 dark:text-white';
 
 export const ReplayModal: React.FC<ReplayModalProps> = ({ song, onClose, onQueued }) => {
   const { t } = useI18n();
@@ -65,7 +65,7 @@ export const ReplayModal: React.FC<ReplayModalProps> = ({ song, onClose, onQueue
       <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-zinc-900" onClick={event => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4 dark:border-white/10">
           <h3 className="flex items-center gap-2 text-base font-bold text-zinc-900 dark:text-white">
-            <Repeat size={17} className="text-pink-500" /> {t('replayTitle')}
+            <Repeat size={17} className="text-emerald-500" /> {t('replayTitle')}
           </h3>
           <button type="button" onClick={onClose} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
             <X size={18} />
@@ -115,7 +115,7 @@ export const ReplayModal: React.FC<ReplayModalProps> = ({ song, onClose, onQueue
             type="button"
             onClick={() => void submit()}
             disabled={busy}
-            className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-pink-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
           >
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Repeat size={14} />} {t('replayStart')}
           </button>

@@ -91,8 +91,8 @@ export const EngineStarting: React.FC<{ onReady?: () => void }> = ({ onReady }) 
   return (
     <div className="flex h-full w-full items-center justify-center bg-white px-5 py-10 dark:bg-suno">
       <div className="w-full max-w-md">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-pink-500">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-pink-500 shadow-[0_0_10px_rgba(236,72,153,0.75)]" />
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-emerald-500">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(236,72,153,0.75)]" />
           {t('engineStartingBadge')}
         </div>
         <h1 className="mt-3 text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{t('engineStartingTitle')}</h1>
@@ -101,7 +101,7 @@ export const EngineStarting: React.FC<{ onReady?: () => void }> = ({ onReady }) 
         <div className="mt-6 space-y-2">
           {steps.map((step) => (
             <div key={step.label} className="flex items-center gap-2.5">
-              <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${step.done ? 'bg-pink-500 text-white' : step.active ? 'text-pink-500' : 'text-zinc-400'}`}>
+              <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${step.done ? 'bg-emerald-500 text-white' : step.active ? 'text-emerald-500' : 'text-zinc-400'}`}>
                 {step.done ? <Check size={12} strokeWidth={3} /> : step.active ? <Loader2 size={14} className="animate-spin" /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}
               </span>
               <span className={`text-sm ${step.active ? 'font-medium text-zinc-900 dark:text-white' : 'text-zinc-500 dark:text-zinc-400'}`}>{step.label}</span>
@@ -112,7 +112,7 @@ export const EngineStarting: React.FC<{ onReady?: () => void }> = ({ onReady }) 
 
         <div className="mt-5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-black/30">
           <div
-            className={`h-full rounded-full bg-gradient-to-r from-orange-500 to-pink-500 ${runtime ? 'transition-[width]' : 'w-1/3 animate-pulse'}`}
+            className={`h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-500 ${runtime ? 'transition-[width]' : 'w-1/3 animate-pulse'}`}
             style={runtime ? { width: `${Math.max(2, percent)}%` } : undefined}
           />
         </div>
@@ -140,7 +140,7 @@ export const EngineStarting: React.FC<{ onReady?: () => void }> = ({ onReady }) 
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
-          className="mt-4 inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-500 hover:text-pink-500"
+          className="mt-4 inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-500 hover:text-emerald-500"
         >
           <ScrollText size={13} />{t('engineLog')}
           <ChevronDown size={13} className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />

@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "changelog": "node ../scripts/changelog.mjs",
+    "predev": "npm run changelog",
+    "prebuild": "npm run changelog",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

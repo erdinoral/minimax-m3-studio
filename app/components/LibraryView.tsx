@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Song, Playlist } from '../types';
 import { Heart, Plus, Music, Play, MoreHorizontal, Trash2, Upload, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -7,6 +7,7 @@ import { AlbumCover } from './AlbumCover';
 import { openStems } from '../services/openStems';
 import { useI18n } from '../context/I18nContext';
 import { captionSummary } from '../services/examples';
+import { SongStemBranch, useSongStemPresence } from './SongStemBranch';
 
 interface LibraryViewProps {
   allSongs: Song[];
@@ -17,6 +18,7 @@ interface LibraryViewProps {
   onSelectPlaylist: (playlist: Playlist) => void;
   onAddToPlaylist: (song: Song) => void;
   onReusePrompt?: (song: Song) => void;
+  onCoverSong?: (song: Song) => void;
   onDeleteSong?: (song: Song) => void;
   onImported?: () => void;
   isNativeLibrary?: boolean;
@@ -31,6 +33,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     onSelectPlaylist,
     onAddToPlaylist,
     onReusePrompt,
+    onCoverSong,
     onDeleteSong,
     onImported,
     isNativeLibrary = false,
@@ -38,6 +41,21 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     const { t } = useI18n();
     const { user } = useAuth();
     const [openMenuSong, setOpenMenuSong] = useState<Song | null>(null);
+    const [expandedStems, setExpandedStems] = useState<Record<string, boolean>>({});
+    const stemPresence = useSongStemPresence(allSongs.map((s) => s.id));
+    useEffect(() => {
+      setExpandedStems((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        for (const [id, present] of Object.entries(stemPresence)) {
+          if (present && next[id] === undefined) {
+            next[id] = true;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, [stemPresence]);
     const [activeTab, setActiveTab] = useState<'all' | 'playlists' | 'liked' | 'import'>('all');
     const [importing, setImporting] = useState(false);
     const [importError, setImportError] = useState<string | null>(null);
@@ -82,7 +100,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
     return (
         <>
-        <div className="min-w-0 flex-1 bg-white p-4 pb-32 transition-colors duration-300 dark:bg-black sm:p-6 lg:p-10">
+        <div className="min-w-0 flex-1 bg-white p-4 pb-32 transition-colors duration-300 dark:bg-suno-panel sm:p-6 lg:p-10">
              <div className="mb-8 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
                 <h1 className="min-w-0 truncate text-2xl font-bold text-zinc-900 dark:text-white sm:text-3xl">{t('yourLibrary')}</h1>
                 <button 
@@ -133,22 +151,55 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                         <div className="text-sm text-zinc-500 dark:text-zinc-400">{t('noSongsYet')}</div>
                     ) : (
                         allSongs.map((song, idx) => (
-                            <div key={song.id} className="group flex min-w-0 items-center gap-2 rounded p-2 transition-colors hover:bg-zinc-100 dark:hover:bg-white/10 sm:gap-4" onClick={() => onPlaySong(song, allSongs)}>
+                          <div key={song.id} className="space-y-0.5">
+                            <div
+                              className={`group flex min-w-0 items-center gap-2 rounded p-2 transition-colors hover:bg-zinc-100 dark:hover:bg-white/10 sm:gap-4 ${song.isGenerating ? 'opacity-90' : ''}`}
+                              onClick={() => {
+                                if (song.isGenerating) return;
+                                onPlaySong(song, allSongs);
+                              }}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (song.isGenerating) return;
+                                setOpenMenuSong(song);
+                              }}
+                            >
                                 <span className="text-zinc-400 dark:text-zinc-500 w-6 text-center group-hover:hidden">{idx + 1}</span>
-                                <span className="text-zinc-900 dark:text-white w-6 text-center hidden group-hover:block"><Play size={14} fill="currentColor" /></span>
+                                <span className="text-zinc-900 dark:text-white w-6 text-center hidden group-hover:block">
+                                  {song.isGenerating ? <Loader2 size={14} className="mx-auto animate-spin text-brand" /> : <Play size={14} fill="currentColor" />}
+                                </span>
                                 
-                                {song.coverUrl ? (
+                                {song.isGenerating ? (
+                                    <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded bg-zinc-200 dark:bg-white/10">
+                                      <Loader2 size={16} className="animate-spin text-brand" />
+                                    </div>
+                                ) : song.coverUrl ? (
                                     <img src={song.coverUrl} className="w-10 h-10 rounded object-cover shadow-sm" alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                                 ) : (
                                     <AlbumCover seed={song.id || song.title} size="sm" className="w-10 h-10" />
                                 )}
                                 
                                 <div className="flex-1 min-w-0">
-                                    <div className="text-zinc-900 dark:text-white font-medium truncate">{song.title}</div>
-                                    <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">{captionSummary(song.style)}</div>
+                                    <div className="text-zinc-900 dark:text-white font-medium truncate">
+                                      {song.title || (song.isGenerating ? (t(song.stage || '') || t('creating')) : t('untitled'))}
+                                    </div>
+                                    <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                                      {song.isGenerating
+                                        ? (t(song.stage || '') || t('creating'))
+                                        : captionSummary(song.style)}
+                                    </div>
+                                    {song.isGenerating && typeof song.progress === 'number' && (
+                                      <div className="mt-1 h-1 overflow-hidden rounded-full bg-zinc-200 dark:bg-white/10">
+                                        <div className="h-full bg-brand transition-all" style={{ width: `${Math.round(Math.min(1, Math.max(0, song.progress)) * 100)}%` }} />
+                                      </div>
+                                    )}
                                 </div>
                                 
-                                <div className="hidden text-sm font-mono text-zinc-500 dark:text-zinc-400 sm:block">{song.duration}</div>
+                                <div className="hidden text-sm font-mono text-zinc-500 dark:text-zinc-400 sm:block">
+                                  {song.isGenerating ? '…' : song.duration}
+                                </div>
+                                {!song.isGenerating && (
                                 <div className="relative ml-0 sm:ml-2">
                                     <button
                                         className="p-2 rounded-full hover:bg-zinc-200 dark:hover:bg-white/5 text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
@@ -165,12 +216,22 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                                         onClose={() => setOpenMenuSong(null)}
                                         isOwner={isNativeLibrary || (user ? song.userId === user.id : false)}
                                         onReusePrompt={() => onReusePrompt?.(song)}
+                                        onCoverSong={() => onCoverSong?.(song)}
                                         onSeparateStems={() => openStems(song)}
                                         onAddToPlaylist={() => onAddToPlaylist(song)}
                                         onDelete={() => onDeleteSong?.(song)}
                                     />
                                 </div>
+                                )}
                             </div>
+                            {(stemPresence[song.id] || expandedStems[song.id]) && (
+                              <SongStemBranch
+                                songId={song.id}
+                                open={Boolean(expandedStems[song.id])}
+                                onToggle={() => setExpandedStems((prev) => ({ ...prev, [song.id]: !prev[song.id] }))}
+                              />
+                            )}
+                          </div>
                         ))
                     )}
                  </div>
@@ -197,7 +258,16 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
                     <div className="space-y-1">
                         {likedSongs.map((song, idx) => (
-                            <div key={song.id} className="group flex min-w-0 items-center gap-2 rounded p-2 transition-colors hover:bg-zinc-100 dark:hover:bg-white/10 sm:gap-4" onClick={() => onPlaySong(song, likedSongs)}>
+                            <div
+                              key={song.id}
+                              className="group flex min-w-0 items-center gap-2 rounded p-2 transition-colors hover:bg-zinc-100 dark:hover:bg-white/10 sm:gap-4"
+                              onClick={() => onPlaySong(song, likedSongs)}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setOpenMenuSong(song);
+                              }}
+                            >
                                 <span className="text-zinc-400 dark:text-zinc-500 w-6 text-center group-hover:hidden">{idx + 1}</span>
                                 <span className="text-zinc-900 dark:text-white w-6 text-center hidden group-hover:block"><Play size={14} fill="currentColor" /></span>
                                 
@@ -230,6 +300,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                                         onClose={() => setOpenMenuSong(null)}
                                         isOwner={isNativeLibrary || (user ? song.userId === user.id : false)}
                                         onReusePrompt={() => onReusePrompt?.(song)}
+                                        onCoverSong={() => onCoverSong?.(song)}
                                         onSeparateStems={() => openStems(song)}
                                         onAddToPlaylist={() => onAddToPlaylist(song)}
                                         onDelete={() => onDeleteSong?.(song)}
@@ -270,7 +341,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                          type="button"
                          onClick={() => importInput.current?.click()}
                          disabled={importing}
-                         className="mt-4 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-pink-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                         className="mt-4 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
                      >
                          {importing ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
                          {t('chooseFiles')}

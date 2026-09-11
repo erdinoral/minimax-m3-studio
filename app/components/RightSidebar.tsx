@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TRACK_ARTIST } from '../services/studio';
 import { Song } from '../types';
-import { Heart, Share2, Play, Pause, MoreHorizontal, X, Copy, Wand2, MoreVertical, Download, Repeat, Video, Music, Link as LinkIcon, Sparkles, Globe, Lock, Trash2, Edit3, Layers, ChevronDown, ClipboardCopy, ImagePlus, Loader2, Mic2 } from 'lucide-react';
+import { Heart, Play, Pause, MoreHorizontal, X, Copy, MoreVertical, Download, Repeat, Video, Music, Link as LinkIcon, Trash2, Edit3, Layers, ChevronDown, ClipboardCopy, ImagePlus, Loader2, Mic2 } from 'lucide-react';
 import { updateNativeSong } from '../services/nativeLibrary';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
@@ -259,7 +259,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpe
                                                     cancelTitleEdit();
                                                 }
                                             }}
-                                            className="w-full text-xl font-bold text-zinc-900 dark:text-white bg-white dark:bg-black/30 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-500/40"
+                                            className="w-full text-xl font-bold text-zinc-900 dark:text-white bg-white dark:bg-black/30 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                                             maxLength={120}
                                             autoFocus
                                         />
@@ -267,7 +267,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpe
                                             <button
                                                 onClick={() => void saveTitleEdit()}
                                                 disabled={isSavingTitle}
-                                                className="px-3 py-1.5 rounded-md text-xs font-semibold bg-pink-600 text-white hover:bg-pink-700 disabled:opacity-60"
+                                                className="px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
                                             >
                                                 {isSavingTitle ? t('saving') : t('save')}
                                             </button>
@@ -374,7 +374,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpe
                                 window.open(`${baseUrl}/demucs-web/?audioUrl=${encodeURIComponent(audioUrl)}`, '_blank');
                             }}
                             title={t('extractStems')}
-                            className="p-3 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-300/50 dark:hover:bg-white/10 rounded-xl transition-all duration-200"
+                            className="p-3 text-zinc-500 hover:text-brand dark:text-zinc-400 dark:hover:text-brand-soft hover:bg-brand/10 rounded-xl transition-all duration-200"
                         >
                             <Layers size={18} strokeWidth={1.5} />
                         </button>
@@ -707,7 +707,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpe
 const ActionButton: React.FC<{ icon: React.ReactNode; label?: string; active?: boolean; onClick?: () => void }> = ({ icon, label, active, onClick }) => (
     <button
         onClick={onClick}
-        className={`flex items-center gap-1.5 ${active ? 'text-pink-600 dark:text-pink-500' : 'text-zinc-400'} hover:text-black dark:hover:text-white transition-colors`}
+        className={`flex items-center gap-1.5 ${active ? 'text-emerald-600 dark:text-emerald-500' : 'text-zinc-400'} hover:text-black dark:hover:text-white transition-colors`}
     >
         {icon}
         {label && <span className="text-xs font-semibold">{label}</span>}

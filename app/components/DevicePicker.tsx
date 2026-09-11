@@ -30,8 +30,8 @@ export const DevicePicker: React.FC<{
           disabled={device === 'cuda' && !cudaAvailable}
           className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             value === device
-              ? 'border-pink-400 bg-pink-500/10 text-zinc-900 dark:text-white'
-              : 'border-zinc-200 text-zinc-500 hover:border-pink-300 hover:bg-pink-500/5 hover:text-zinc-900 dark:border-white/10 dark:hover:border-pink-500/40 dark:hover:text-white'
+              ? 'border-emerald-400 bg-emerald-500/10 text-zinc-900 dark:text-white'
+              : 'border-zinc-200 text-zinc-500 hover:border-emerald-300 hover:bg-emerald-500/5 hover:text-zinc-900 dark:border-white/10 dark:hover:border-emerald-500/40 dark:hover:text-white'
           }`}
         >
           {t(device === 'auto' ? 'separationRuntimeAuto' : device === 'cuda' ? 'separationRuntimeGpu' : 'separationRuntimeCpu')}
@@ -63,8 +63,8 @@ export const ChoiceTabs = <T extends string>({ options, value, onChange, columns
         onClick={() => onChange(option.id)}
         className={`cursor-pointer rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
           value === option.id
-            ? 'border-pink-400 bg-pink-500/10 text-zinc-900 dark:text-white'
-            : 'border-zinc-200 text-zinc-500 hover:border-pink-300 hover:bg-pink-500/5 hover:text-zinc-900 dark:border-white/10 dark:hover:border-pink-500/40 dark:hover:text-white'
+            ? 'border-emerald-400 bg-emerald-500/10 text-zinc-900 dark:text-white'
+            : 'border-zinc-200 text-zinc-500 hover:border-emerald-300 hover:bg-emerald-500/5 hover:text-zinc-900 dark:border-white/10 dark:hover:border-emerald-500/40 dark:hover:text-white'
         }`}
       >
         {option.label}

@@ -557,7 +557,7 @@ pub async fn serve() -> anyhow::Result<()> {
         .route("/setup/select", post(setup_select))
         .route("/setup/cancel", post(setup_cancel))
         .route("/v1/local-models/music", get(local_music_model_catalog))
-        .route("/v1/music/jobs", post(create_music_job))
+        .route("/v1/music/jobs", get(list_music_jobs).post(create_music_job))
         .route("/v1/music/replay", post(replay_music_job))
         .route(
             "/v1/music/jobs/{job_id}",
@@ -3096,6 +3096,61 @@ async fn assistant_openrouter_model(state: &AppState, config: &AssistantConfig) 
         .unwrap_or_default()
 }
 
+/// llama-server answers 503 `"Loading model"` until weights are in memory.
+/// The process can be up (UI says ready) while the first load still runs.
+fn assistant_model_still_loading(status: reqwest::StatusCode, body: &str) -> bool {
+    if status.as_u16() != 503 {
+        return false;
+    }
+    let lower = body.to_ascii_lowercase();
+    lower.contains("loading model") || lower.contains("unavailable_error")
+}
+
+/// POST /chat/completions, retrying while the local sidecar finishes loading.
+async fn post_assistant_chat_waiting_for_load(
+    client: &reqwest::Client,
+    url: String,
+    body: &Value,
+    timeout: std::time::Duration,
+    api_key: Option<&str>,
+) -> Result<reqwest::Response, String> {
+    const ATTEMPTS: u32 = 90; // ~3 minutes at 2s
+    const DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+    let mut last_body = String::new();
+    for attempt in 1..=ATTEMPTS {
+        let mut outgoing = client.post(&url).json(body).timeout(timeout);
+        if let Some(key) = api_key {
+            outgoing = outgoing
+                .header(reqwest::header::AUTHORIZATION, format!("Bearer {key}"))
+                .header("HTTP-Referer", "https://github.com/timoncool/MiniMax-Music3-Studio")
+                .header("X-Title", "MiniMax Music3 Studio");
+        }
+        let response = outgoing
+            .send()
+            .await
+            .map_err(|error| format!("the assistant is unreachable: {error}"))?;
+        let status = response.status();
+        if status.is_success() {
+            return Ok(response);
+        }
+        let text = response.text().await.unwrap_or_default();
+        // Only local llama-server races a weight load; cloud 503s are real errors.
+        if api_key.is_none() && assistant_model_still_loading(status, &text) {
+            last_body = text;
+            if attempt == ATTEMPTS {
+                break;
+            }
+            tokio::time::sleep(DELAY).await;
+            continue;
+        }
+        return Err(format!("the assistant returned {status}: {text}"));
+    }
+    Err(format!(
+        "the local assistant is still loading the model (waited ~{}s): {last_body}",
+        ATTEMPTS * 2
+    ))
+}
+
 async fn assistant_write_stream(
     State(state): State<AppState>,
     Json(request): Json<assistant::AssistRequest>,
@@ -3194,33 +3249,25 @@ async fn assistant_write_stream(
         let started = std::time::Instant::now();
 
         let client = reqwest::Client::new();
-        let mut outgoing = client
-            .post(format!("{}/chat/completions", base.trim_end_matches('/')))
-            .json(&body)
-            .timeout(std::time::Duration::from_secs(600));
-        if let Some(key) = key {
-            outgoing = outgoing
-                .header(reqwest::header::AUTHORIZATION, format!("Bearer {key}"))
-                .header("HTTP-Referer", "https://github.com/timoncool/MiniMax-Music3-Studio")
-                .header("X-Title", "MiniMax Music3 Studio");
-        }
-
-        let response = match outgoing.send().await {
+        let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+        // First call often races the GGUF load — wait instead of failing the Create queue.
+        emit(sender.clone(), serde_json::json!({ "stage": "loading_model" })).await;
+        let response = match post_assistant_chat_waiting_for_load(
+            &client,
+            url,
+            &body,
+            std::time::Duration::from_secs(600),
+            key.as_deref(),
+        )
+        .await
+        {
             Ok(response) => response,
             Err(error) => {
-                request_log::failed("assistant", &model, &error.to_string());
-                emit(sender.clone(), serde_json::json!({ "error": format!("the assistant is unreachable: {error}") })).await;
+                request_log::failed("assistant", &model, &error);
+                emit(sender.clone(), serde_json::json!({ "error": error })).await;
                 return;
             }
         };
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            request_log::answered("assistant", &model, status.as_u16(), started.elapsed().as_secs_f64(), text.chars().count());
-            request_log::unusable("assistant", &model, &format!("http {status}"), &text);
-            emit(sender.clone(), serde_json::json!({ "error": format!("the assistant returned {status}: {text}") })).await;
-            return;
-        }
 
         // Server-sent events, one JSON object per `data:` line, with the text in
         // `choices[0].delta.content`.
@@ -3325,33 +3372,31 @@ async fn assistant_write(
                     config.local_model.clone().unwrap_or_default(),
                 ),
             };
-            let sent = reqwest::Client::new()
-                .post(format!("{}/chat/completions", base.trim_end_matches('/')))
-                .json(&assistant::chat_body_constrained(
-                    &model,
-                    &system,
-                    &user,
-                    None,
-                    None,
-                    matches!(config.provider, AssistantProvider::Managed | AssistantProvider::Local)
-                        .then(|| assistant::draft_schema(&required)),
-                ))
-                .timeout(std::time::Duration::from_secs(180))
-                .send()
-                .await
-                .map_err(|error| {
-                    // A sidecar that died mid-request leaves nothing but a
-                    // refused connection unless its own log is quoted back.
-                    let tail = state.assistant_runtime.log_tail();
-                    let detail = if tail.is_empty() { String::new() } else { format!("
-{tail}") };
-                    api_error(StatusCode::BAD_GATEWAY, format!("the local assistant is unreachable: {error}{detail}"))
-                })?;
-            let status = sent.status();
+            let chat_body = assistant::chat_body_constrained(
+                &model,
+                &system,
+                &user,
+                None,
+                None,
+                matches!(config.provider, AssistantProvider::Managed | AssistantProvider::Local)
+                    .then(|| assistant::draft_schema(&required)),
+            );
+            let client = reqwest::Client::new();
+            let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+            let sent = post_assistant_chat_waiting_for_load(
+                &client,
+                url,
+                &chat_body,
+                std::time::Duration::from_secs(180),
+                None,
+            )
+            .await
+            .map_err(|error| {
+                let tail = state.assistant_runtime.log_tail();
+                let detail = if tail.is_empty() { String::new() } else { format!("\n{tail}") };
+                api_error(StatusCode::BAD_GATEWAY, format!("{error}{detail}"))
+            })?;
             let body = sent.text().await.unwrap_or_default();
-            if !status.is_success() {
-                return Err(api_error(StatusCode::BAD_GATEWAY, format!("the local assistant returned {status}: {body}")));
-            }
             serde_json::from_str(&body)
                 .map_err(|error| api_error(StatusCode::BAD_GATEWAY, format!("invalid assistant response: {error}")))?
         }
@@ -3776,6 +3821,18 @@ fn describes_exhausted_memory(log: &str) -> bool {
     ]
     .iter()
     .any(|marker| log.contains(marker))
+}
+
+/// Active (queued/running) jobs — so a refreshed UI can reattach progress cards.
+async fn list_music_jobs(State(state): State<AppState>) -> Json<Value> {
+    let jobs = state.jobs.read().await;
+    let mut active: Vec<MusicJob> = jobs
+        .values()
+        .filter(|job| matches!(job.status, MusicJobStatus::Queued | MusicJobStatus::Running))
+        .cloned()
+        .collect();
+    active.sort_by(|a, b| a.id.cmp(&b.id));
+    Json(serde_json::json!({ "jobs": active }))
 }
 
 async fn create_music_job(
@@ -4284,8 +4341,13 @@ fn selected_local_music_engine(configuration: &StudioConfiguration) -> Option<St
 }
 
 fn mm_request_from(request: &CreateMusicJobRequest, selected_profile_id: Option<&str>, selected_component_ids: Option<&[String]>, manager: Option<&ModelManager>) -> Result<Value, String> {
-    if request.caption.trim().is_empty() || request.lyrics.trim().is_empty() {
-        return Err("caption and lyrics are required by mm-server".into());
+    // Caption always carries the style/arrangement. Lyrics are only required
+    // for a sung track: an instrumental has no words and is sent with an empty
+    // lyrics field, which is how mm-server asks MiniMax Music3 for instrumental
+    // output. The panel already refuses to submit vocal requests with empty
+    // lyrics, so an empty string here means "instrumental", not an oversight.
+    if request.caption.trim().is_empty() {
+        return Err("styling caption is required by mm-server".into());
     }
     if !request.duration_seconds.is_finite() || request.duration_seconds <= 0.0 {
         return Err("duration_seconds must be greater than zero".into());
@@ -4579,6 +4641,40 @@ mod tests {
 
         let invalid = CreateMusicJobRequest { synth_batch_size: Some(10), ..request };
         assert!(mm_request_from(&invalid, None, None, None).unwrap_err().contains("synth_batch_size"));
+    }
+
+    #[test]
+    fn instrumental_request_is_accepted_with_an_empty_lyrics_field() {
+        let request = CreateMusicJobRequest {
+            cover_prompt: None,
+            title: None,
+            caption: "night drive".into(),
+            lyrics: "".into(),
+            duration_seconds: 60.0,
+            steps: None, seed: None, lm_seed: None, lm_cfg: None, lm_top_k: None,
+            lm_batch_size: None, synth_batch_size: None, dit_cfg: None, peak_clip: None,
+            output_format: None, mp3_bitrate: None,
+            models: Some(Mm3ModelSelection { lm_model: Some("lm.gguf".into()), depth_model: Some("depth.gguf".into()), cond_model: Some("condition.gguf".into()), dit_model: Some("dit.gguf".into()), vae_model: Some("vocoder.gguf".into()) }),
+        };
+        let body = mm_request_from(&request, None, None, None).unwrap();
+        // The empty lyrics are passed through verbatim so mm-server can produce
+        // an instrumental track, rather than being mistaken for a missing field.
+        assert_eq!(body["lyrics"], "");
+    }
+
+    #[test]
+    fn request_still_requires_a_caption_when_lyrics_are_empty() {
+        let request = CreateMusicJobRequest {
+            cover_prompt: None,
+            title: None,
+            caption: "".into(),
+            lyrics: "".into(),
+            duration_seconds: 60.0,
+            steps: None, seed: None, lm_seed: None, lm_cfg: None, lm_top_k: None,
+            lm_batch_size: None, synth_batch_size: None, dit_cfg: None, peak_clip: None,
+            output_format: None, mp3_bitrate: None, models: None,
+        };
+        assert!(mm_request_from(&request, None, None, None).unwrap_err().contains("caption"));
     }
 
     #[test]

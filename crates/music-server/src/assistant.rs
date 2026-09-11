@@ -22,26 +22,40 @@ use serde_json::Value;
 /// image model can draw from.
 const EXTRA: &str = "title: a short song title, two to five words, no quotation marks, in the language of the lyrics. cover_prompt: one sentence describing a cover image for this track - a scene, not a poster; no text, no lettering, no logos. duration_seconds: how long a track of this genre and arrangement normally runs, in seconds, between 30 and 360.";
 
-const VALIDATION: &str = "Before answering, check your own draft: every explicit user constraint kept, an instrumental request still instrumental, vocal gender not contradicted, every section tag present in its own section, no lyric line quoted or summarised, no song title inside the caption fields, no invented exact BPM or key, and no sentence copied from a reference. Fix what fails, then answer.";
+const VALIDATION: &str = "Before answering, check your own draft: every explicit user constraint kept, an instrumental request still instrumental, vocal gender not contradicted, every section tag present in its own section, no lyric line quoted or summarised, no song title inside the caption fields, no invented exact BPM or key unless the user stated that BPM/key, every instrument or percussion named in Styles or HARD instrument constraints (e.g. cowbell, 808, saxophone, keman) appears by name in arrangement and/or Sonics & Production Profile and is not replaced by generic drums alone, and no sentence copied from a reference. Fix what fails, then answer.";
 
 const CAPTION_CONTRACT: &str = r#"The three caption fields follow the exact labeled style the model was trained on, and the rules below are MiniMax's own, from the music-caption-rewriter skill they publish with the model.
 
-Be concrete and musical: describe an energy arc and instrument lifecycles, never a static equipment list or decorative adjectives. Preserve every explicit user constraint - an instrumental request stays instrumental, and a required vocal gender, tempo limit, required instrument or exclusion is never reversed. Do not invent a precise key, BPM, vocal gender or production technique when a broader description is sufficient; use a range or a qualitative tempo instead. Never quote, paraphrase or summarise a lyric line inside the caption, and never include a song title or track id. Total caption length roughly 250-450 English words. Write in English unless the user explicitly asks for another language.
+Be concrete and musical: describe an energy arc and instrument lifecycles, never a static equipment list or decorative adjectives. Preserve every explicit user constraint - an instrumental request stays instrumental, and a required vocal gender, tempo limit, required instrument or exclusion is never reversed. When Styles or the brief name a specific instrument or percussion (cowbell, 808, violin/keman, saxophone, etc.), that name MUST appear in Instrument Lifecycle (Primary or Secondary) and again in Sonics & Production Profile with a concrete role (when it enters, which sections, how it accents the groove) — never drop it or substitute anonymous "percussion" / "drums" / "pad". When the user states an explicit BPM in their styles or brief, put that exact BPM in Basic Attributes. When they do not, choose a suitable tempo automatically using a range or qualitative tempo — do not invent a fake precise BPM. Do not invent a precise key, vocal gender or production technique when a broader description is sufficient. Never quote, paraphrase or summarise a lyric line inside the caption, and never include a song title or track id. Total caption length roughly 250-450 English words. Write in English unless the user explicitly asks for another language.
 
-global_metadata: genre and subgenres, tempo, emotional progression, and the overall sonic and production profile, in this order: "Basic Attributes: bpm is <number or range>. key is <letter>, and scale is <major|minor>. <Genre / Subgenre>." then "Global Emotional Progression: <how the emotion evolves from the opening through the final section>." then "Application Scenarios & Imagery: <two or three vivid listening scenarios>." then "Sonics & Production Profile: <soundstage, frequency balance, dynamics, production character>." Include key and scale only when explicit or musically useful.
+global_metadata: genre and subgenres, tempo, emotional progression, and the overall sonic and production profile, in this order: "Basic Attributes: bpm is <number or range>. key is <letter>, and scale is <major|minor>. <Genre / Subgenre>." then "Global Emotional Progression: <how the emotion evolves from the opening through the final section>." then "Application Scenarios & Imagery: <two or three vivid listening scenarios>." then "Sonics & Production Profile: <soundstage, frequency balance, dynamics, production character — name required Style instruments here>." Include key and scale only when explicit or musically useful.
 
 vocal_details: for vocal music describe the lead configuration, timbre, register, delivery, harmony or backing vocals and restrained vocal effects: "Vocal Gender & Timbre: Singer A (<Male|Female>), <timbre and register>." then "Vocal Style: <delivery, and how it shifts per section>." then "Harmony/Backing Vocals: <where harmonies or doubles appear and their character>." then "Vocal FX: <restrained treatment: reverb, delay, light compression>." For instrumental music state that the piece is instrumental and name the instrument or texture carrying the lead melodic role. Do not invent lyrical subject matter.
 
-arrangement: the song as a section-by-section timeline: "Instrument Lifecycle Description (Primary/Secondary Layering): Primary: <core instruments present start to finish and their role>. Secondary: <instruments that enter, exit or intensify, and in which sections>." then "Groove & Foundation Progression: <how drums, bass and groove develop across sections>." then "Embellishments, Textures & Spatial FX: <fills, textures, transitional gestures, stereo and space treatment where relevant>." For every section say what enters, exits, changes or intensifies, aligned with the lyric section tags, and keep transitions musically plausible. Prefer concrete musical changes over decorative prose."#;
+arrangement: the song as a section-by-section timeline: "Instrument Lifecycle Description (Primary/Secondary Layering): Primary: <core instruments present start to finish and their role — include every Styles-required instrument by name>. Secondary: <instruments that enter, exit or intensify, and in which sections>." then "Groove & Foundation Progression: <how drums, bass, cowbell or other Style percussion develop across sections>." then "Embellishments, Textures & Spatial FX: <fills, textures, transitional gestures, stereo and space treatment where relevant>." For every section say what enters, exits, changes or intensifies, aligned with the lyric section tags, and keep transitions musically plausible. Prefer concrete musical changes over decorative prose."#;
 
 /// The lyric rules, likewise transcribed: the tag vocabulary and the structure
 /// sizing are what keep the sung result aligned with the requested length.
-const LYRICS_RULES: &str = r#"lyrics: singable lyrics using ONLY these section tags, each ALWAYS ALONE on its own line: [intro] [verse] [pre-chorus] [chorus] [post-chorus] [bridge] [instrumental] [solo] [outro]. Never put words on the same line as a tag - the engine keeps the tag and throws that line's words away. Size the structure to the duration: <=30s: one verse + one chorus; ~60s: verse/pre-chorus/chorus/verse/chorus; >=120s: full structure with bridge and outro. Roughly 12-16 sung words per 10 seconds, and keep neighbouring lines close in length: a line much denser than the one before it gets sung rushed. The engine does not budget time - it sings until the clock runs out and stops there, mid-phrase if it has to - so write slightly less than the duration allows and never leave the song's payoff line for the outro. Musical instructions (tempo, instruments, dynamics) never belong in the lyrics. If the song is instrumental, write the same structure a sung song would have - [intro] [verse] [chorus] [bridge] [outro] - with no words under any of them, and use [instrumental] or [solo] only where a real instrumental passage belongs, the way a band would play one. Alternating [instrumental] with every other tag is not what the tag is for. Write the lyrics in the language the user wrote their request in: a Russian idea gets Russian lyrics, a Japanese one Japanese. The caption fields stay English - that is what the engine reads - but nobody asked for an English song."#;
+const LYRICS_RULES: &str = r#"lyrics: singable lyrics using ONLY these section tags, each ALWAYS ALONE on its own line: [intro] [verse] [pre-chorus] [chorus] [post-chorus] [bridge] [instrumental] [solo] [outro]. Never put words on the same line as a tag - the engine keeps the tag and throws that line's words away. Size the structure to the duration: <=30s: one verse + one chorus; ~60s: verse/pre-chorus/chorus/verse/chorus; >=120s: full structure with bridge and outro. Roughly 12-16 sung words per 10 seconds, and keep neighbouring lines close in length: a line much denser than the one before it gets sung rushed. The engine does not budget time - it sings until the clock runs out and stops there, mid-phrase if it has to - so write slightly less than the duration allows and never leave the song's payoff line for the outro. Musical instructions (tempo, instruments, dynamics) never belong in the lyrics. If the song is instrumental, write the same structure a sung song would have - [intro] [verse] [chorus] [bridge] [outro] - with no words under any of them, and use [instrumental] or [solo] only where a real instrumental passage belongs, the way a band would play one. Alternating [instrumental] with every other tag is not what the tag is for. The caption fields stay English - that is what the engine reads."#;
+
+/// Song language is not UI language. A Turkish brief alone must not force Turkish singing.
+const LYRICS_LANGUAGE_AUTO: &str = r#"
+Song language (lyrics only):
+- If the user already supplied lyrics, write in that same language.
+- If they explicitly ask for a sung language (e.g. "Türkçe şarkı", "Türkçe okusun", "in Turkish", "in English", "на русском", "日本語で"), use that language.
+- Otherwise default to English lyrics.
+- Do NOT treat the language of the brief or the UI as the song language by itself."#;
 
 /// Pronunciation, which the caption cannot reach: the engine reads the lyrics
 /// as characters, so the only place to correct a mis-sung word is the word.
+/// Keep this language-neutral in the lead — Russian examples alone bias local
+/// models toward Russian lyrics even when the song language is English.
 const DICTION_RULE: &str = r#"
-Diction: the model sings the letters it is given. In Russian write ё as ё rather than е, and mark the stressed vowel with a combining acute - за́мок, замо́к - only where the word would otherwise be read wrong: homographs, rare words, proper names, and a word whose natural stress fights the beat. Never accent every word; a page of accents reads as noise. In other languages do the same locally - respell or transcribe only the individual words that come out wrong, and leave the rest alone."#;
+Diction: the model sings the letters it is given. Respelling or stress marks apply only where a word would otherwise be mis-sung; never accent every word.
+- Match diction advice to the locked song language (or the language of the lyrics you write).
+- English: keep natural spelling; respell only problem words.
+- Russian (only when lyrics are Russian): write ё as ё rather than е; mark stressed vowels with a combining acute only on homographs, rare words, proper names, or beat-fighting stress.
+- Other languages: same idea locally — fix only the individual words that come out wrong."#;
 
 /// Two voices, from a community experiment on the released weights: ~30
 /// generations with pinned seeds, one variable at a time. Describing both
@@ -52,7 +66,11 @@ Two voices: name both singers in vocal_details ("Singer A (Male), <timbre>. Sing
 /// The failure mode of an instrumental request: vocals creep back in. Naming
 /// what carries the melody instead leaves the model something to sing with.
 const INSTRUMENTAL_RULE: &str = r#"
-Instrumental: state in vocal_details that the piece is instrumental with no sung words, no wordless or sampled vocals and no choir, and name the instrument carrying the lead melodic line in every section that would otherwise have carried a vocal."#;
+Instrumental STRICT rules (failure mode is vocals creeping back in):
+1. vocal_details MUST state the piece is fully instrumental: no sung words, no humming, no scat, no wordless vocals, no sampled vocal chops, no choir, no vocal pads that sound like a human voice.
+2. Name the instrument or texture that carries the lead melodic role in every section that would otherwise have carried a vocal (for example lead synth, electric guitar, piano, flute).
+3. lyrics MUST use the usual section tags only, with NO sung words under any tag — empty sections or instrumental markers only.
+4. Never describe a singer, vocal gender, lyric theme, or vocal FX."#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -84,6 +102,10 @@ pub struct AssistRequest {
     pub duration_seconds: f64,
     #[serde(default)]
     pub instrumental: bool,
+    /// Locked song language for lyrics: empty/"auto", or a code like "tr", "en", "ru".
+    /// Caption fields stay English regardless.
+    #[serde(default)]
+    pub lyrics_language: String,
 }
 
 fn default_duration() -> f64 {
@@ -161,6 +183,7 @@ fn craft_notes(request: &AssistRequest) -> String {
     let mut notes = String::new();
     if request.target != AssistTarget::Prompt && !request.instrumental {
         notes.push_str(DICTION_RULE);
+        notes.push_str(&lyrics_language_note(request));
     }
     if request.instrumental {
         notes.push_str(INSTRUMENTAL_RULE);
@@ -168,6 +191,46 @@ fn craft_notes(request: &AssistRequest) -> String {
         notes.push_str(DUET_RULE);
     }
     notes
+}
+
+fn lyrics_language_note(request: &AssistRequest) -> String {
+    let code = request.lyrics_language.trim().to_lowercase();
+    if code.is_empty() || code == "auto" {
+        return LYRICS_LANGUAGE_AUTO.to_owned();
+    }
+    let name = match code.as_str() {
+        "tr" | "turkish" | "türkçe" | "turkce" => "Turkish",
+        "en" | "english" => "English",
+        "ru" | "russian" => "Russian",
+        "ja" | "japanese" => "Japanese",
+        "zh" | "chinese" => "Chinese",
+        "ko" | "korean" => "Korean",
+        other => other,
+    };
+    format!(
+        "\nHARD Song language lock (non-negotiable): EVERY sung lyric line MUST be written entirely in {name}. \
+Section tags stay ASCII English ([verse], [chorus], …). Caption fields stay English. \
+Do NOT write lyrics in any other language — not Russian, Turkish, Chinese, Japanese, Korean, or mixed scripts. \
+If Styles or keywords are in another language, translate the sung words into {name}; keep only proper nouns untranslated when needed."
+    )
+}
+
+/// Short reminder for the user message so the lock is not buried in system notes.
+fn lyrics_language_user_cue(request: &AssistRequest) -> String {
+    let code = request.lyrics_language.trim().to_lowercase();
+    if code.is_empty() || code == "auto" {
+        return "Song language: default to English lyrics unless the user already supplied lyrics or explicitly asked for another sung language.\n".into();
+    }
+    let name = match code.as_str() {
+        "tr" | "turkish" | "türkçe" | "turkce" => "Turkish",
+        "en" | "english" => "English",
+        "ru" | "russian" => "Russian",
+        "ja" | "japanese" => "Japanese",
+        "zh" | "chinese" => "Chinese",
+        "ko" | "korean" => "Korean",
+        other => other,
+    };
+    format!("Song language LOCK: write ALL sung lines in {name} only. No other languages.\n")
 }
 
 /// Whether the song has two singers, read from whatever the user wrote.
@@ -226,9 +289,15 @@ pub fn user_message(request: &AssistRequest) -> String {
     let brief = if !instruction.is_empty() { instruction } else { description };
     let instrumental = if request.instrumental { "\nThis piece is instrumental: no sung words." } else { "" };
 
+    let lang_cue = if request.instrumental {
+        String::new()
+    } else {
+        lyrics_language_user_cue(request)
+    };
+
     match request.target {
         AssistTarget::Lyrics => format!(
-            "Lyrics instruction: {}\nCurrent structured prompt, keep the lyrics coherent with it:\nGlobal metadata: {}\nVocal details: {}\nArrangement: {}\nTarget duration: {} seconds.{instrumental}",
+            "{lang_cue}Lyrics instruction: {}\nCurrent structured prompt, keep the lyrics coherent with it:\nGlobal metadata: {}\nVocal details: {}\nArrangement: {}\nTarget duration: {} seconds.{instrumental}",
             if brief.is_empty() { "(none — write lyrics that fit the structured prompt)" } else { brief },
             request.global_metadata.trim(),
             request.vocal_details.trim(),
@@ -258,7 +327,7 @@ pub fn user_message(request: &AssistRequest) -> String {
             carry("Vocal details", &request.vocal_details);
             carry("Arrangement", &request.arrangement);
             format!(
-                "Song description: {}{carried}{instrumental}",
+                "{lang_cue}Song description: {}{carried}{instrumental}",
                 if brief.is_empty() { "(none - choose something musical and specific)" } else { brief },
             )
         }
@@ -467,6 +536,7 @@ mod tests {
             arrangement: String::new(),
             duration_seconds: 60.0,
             instrumental: false,
+        lyrics_language: String::new(),
         };
         let (system, _) = super::instructions(&request);
         println!("system prompt: {} characters, {} reference blocks", system.len(), system.matches("--- reference").count());
@@ -488,6 +558,7 @@ mod tests {
             arrangement: String::new(),
             duration_seconds: 60.0,
             instrumental: false,
+        lyrics_language: String::new(),
         };
         let (system, _) = super::instructions(&request);
         assert!(system.contains("Reference captions from MiniMax"), "the skill's references are missing from the prompt");
@@ -509,6 +580,7 @@ mod tests {
             arrangement: String::new(),
             duration_seconds: 60.0,
             instrumental: false,
+        lyrics_language: String::new(),
         };
         let message = super::user_message(&request);
         assert!(!message.contains("60"), "the prompt still carries the default: {message}");
@@ -558,6 +630,7 @@ mod tests {
             arrangement: "Primary: synths".into(),
             duration_seconds: 90.0,
             instrumental: false,
+        lyrics_language: String::new(),
         }
     }
 
@@ -614,23 +687,31 @@ mod tests {
 neon on the wet road"));
     }
 
-    /// A Russian idea used to come back as an English song: the caption rule
-    /// ("write in English") had quietly swallowed the lyrics as well.
+    /// Song language follows explicit intent or supplied lyrics — not brief UI language.
     #[test]
-    fn the_lyrics_follow_the_language_of_the_request() {
+    fn the_lyrics_follow_song_language_intent_not_brief_language() {
         let request = super::AssistRequest {
             target: super::AssistTarget::All,
             description: String::new(),
-            instruction: "панк-рок про ёжика в бункере".into(),
+            instruction: "bana bir phonk parçası yap".into(),
             lyrics: String::new(),
             global_metadata: String::new(),
             vocal_details: String::new(),
             arrangement: String::new(),
             duration_seconds: 60.0,
             instrumental: false,
+            lyrics_language: String::new(),
         };
         let (system, _) = super::instructions(&request);
-        assert!(system.contains("language the user wrote their request in"));
+        assert!(system.contains("Do NOT treat the language of the brief"), "auto language rule missing");
+        assert!(!system.contains("language the user wrote their request in"));
+
+        let locked = super::AssistRequest {
+            lyrics_language: "tr".into(),
+            ..request
+        };
+        let (locked_system, _) = super::instructions(&locked);
+        assert!(locked_system.contains("EVERY sung lyric line MUST be written entirely in Turkish"));
     }
 
     /// A stress mark is the only lever there is on pronunciation: the caption
@@ -647,6 +728,7 @@ neon on the wet road"));
             arrangement: String::new(),
             duration_seconds: 90.0,
             instrumental: false,
+        lyrics_language: String::new(),
         };
         let (system, _) = super::instructions(&request);
         assert!(system.contains("combining acute"), "nothing tells the model how to fix a stress");
@@ -678,7 +760,7 @@ neon on the wet road"));
         let mut instrumental = request(AssistTarget::All);
         instrumental.instrumental = true;
         let (system, _) = instructions(&instrumental);
-        assert!(system.contains("lead melodic line"), "nothing replaces the missing vocal");
+        assert!(system.contains("lead melodic role"), "nothing replaces the missing vocal");
         assert!(!system.contains("combining acute"), "an instrumental was given a diction rule");
     }
 

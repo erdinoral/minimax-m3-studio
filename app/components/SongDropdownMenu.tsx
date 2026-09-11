@@ -15,6 +15,7 @@ import {
     Loader2,
     Mic2,
     Scissors,
+    Wand2,
 } from 'lucide-react';
 
 interface SongDropdownMenuProps {
@@ -29,6 +30,7 @@ interface SongDropdownMenuProps {
     onReplayMusic?: () => void;
     onExportVideo?: () => void;
     onSeparateStems?: () => void;
+    onCoverSong?: () => void;
     onAddToPlaylist?: () => void;
     onDownload?: () => void;
     /// Called with the track carrying its new karaoke timings.
@@ -119,6 +121,7 @@ export const SongDropdownMenu: React.FC<SongDropdownMenuProps> = ({
     onReplayMusic,
     onExportVideo,
     onSeparateStems,
+    onCoverSong,
     onAddToPlaylist,
     onDownload,
     onDelete,
@@ -235,6 +238,14 @@ export const SongDropdownMenu: React.FC<SongDropdownMenuProps> = ({
                     label={t('stemsTitle')}
                     onClick={() => handleAction(onSeparateStems)}
                     disabled={!song.audioUrl}
+                />
+            )}
+            {onCoverSong && (
+                <MenuItem
+                    icon={<Wand2 size={14} />}
+                    label={t('coverSong')}
+                    onClick={() => handleAction(onCoverSong)}
+                    disabled={!song.audioUrl && !song.lyrics}
                 />
             )}
             {onReusePrompt && (

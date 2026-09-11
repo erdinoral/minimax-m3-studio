@@ -1,60 +1,82 @@
 import { useI18n } from '../context/I18nContext';
 import React, { useEffect, useRef } from 'react';
-import { CheckCircle, AlertCircle, X } from 'lucide-react';
+import { AlertCircle, CheckCircle, Loader2, X } from 'lucide-react';
 
-export type ToastType = 'success' | 'error' | 'info';
+export type ToastType = 'success' | 'error' | 'info' | 'progress';
+
+export type ProgressToast = {
+  id: string;
+  message: string;
+};
 
 interface ToastProps {
-    message: string;
-    type?: ToastType;
-    isVisible: boolean;
-    onClose: () => void;
-    duration?: number;
+  message: string;
+  type?: ToastType;
+  isVisible: boolean;
+  onClose: () => void;
+  duration?: number;
+  /** Persistent progress stack (generation + stems). */
+  progressItems?: ProgressToast[];
 }
 
 export const Toast: React.FC<ToastProps> = ({
-    message,
-    type = 'success',
-    isVisible,
-    onClose,
-    duration = 3000
+  message,
+  type = 'success',
+  isVisible,
+  onClose,
+  duration = 3000,
+  progressItems = [],
 }) => {
-    const { t } = useI18n();
-    const onCloseRef = useRef(onClose);
-    useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  const { t } = useI18n();
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
-    useEffect(() => {
-        if (isVisible && duration > 0) {
-            const timer = setTimeout(() => {
-                onCloseRef.current();
-            }, duration);
-            return () => clearTimeout(timer);
-        }
-    }, [isVisible, duration, message]);
+  useEffect(() => {
+    if (isVisible && duration > 0 && type !== 'progress') {
+      const timer = setTimeout(() => onCloseRef.current(), duration);
+      return () => clearTimeout(timer);
+    }
+  }, [isVisible, duration, message, type]);
 
-    if (!isVisible) return null;
+  const showFlash = isVisible && type !== 'progress';
+  const showProgress = progressItems.length > 0;
+  if (!showFlash && !showProgress) return null;
 
-    const bgColors = {
-        success: 'bg-zinc-900 border-green-500/50 text-white',
-        error: 'bg-zinc-900 border-red-500/50 text-white',
-        info: 'bg-zinc-900 border-blue-500/50 text-white',
-    };
+  const bgColors = {
+    success: 'bg-zinc-900 border-green-500/50 text-white',
+    error: 'bg-zinc-900 border-red-500/50 text-white',
+    info: 'bg-zinc-900 border-blue-500/50 text-white',
+    progress: 'bg-zinc-900 border-brand/50 text-white',
+  };
 
-    const icons = {
-        success: <CheckCircle className="text-green-500" size={20} />,
-        error: <AlertCircle className="text-red-500" size={20} />,
-        info: <AlertCircle className="text-blue-500" size={20} />,
-    };
+  const icons = {
+    success: <CheckCircle className="text-green-500" size={20} />,
+    error: <AlertCircle className="text-red-500" size={20} />,
+    info: <AlertCircle className="text-blue-500" size={20} />,
+    progress: <Loader2 className="animate-spin text-brand" size={20} />,
+  };
 
-    return (
-        <div className="pointer-events-none fixed inset-x-3 top-3 z-[100] flex justify-center sm:top-6">
-            <div role={type === 'error' ? 'alert' : 'status'} className={`pointer-events-auto flex max-w-full items-center gap-3 rounded-2xl border px-4 py-3 shadow-2xl ${bgColors[type]} animate-in slide-in-from-top-4 fade-in duration-300 sm:rounded-full sm:px-6 sm:py-4`}>
-                {icons[type]}
-                <span className="min-w-0 break-words text-sm font-medium">{message}</span>
-                <button type="button" onClick={onClose} className="ml-1 shrink-0 rounded-full p-0.5 hover:opacity-70" aria-label={t('closeNotification')}>
-                    <X size={16} />
-                </button>
-            </div>
+  return (
+    <div className="pointer-events-none fixed inset-x-3 top-3 z-[100] flex flex-col items-center gap-2 sm:top-6">
+      {showProgress && progressItems.map((item) => (
+        <div
+          key={item.id}
+          role="status"
+          className={`pointer-events-auto flex max-w-full items-center gap-3 rounded-2xl border px-4 py-3 shadow-2xl ${bgColors.progress} animate-in slide-in-from-top-4 fade-in duration-300 sm:rounded-full sm:px-6 sm:py-4`}
+        >
+          {icons.progress}
+          <span className="min-w-0 break-words text-sm font-medium">{item.message}</span>
         </div>
-    );
+      ))}
+      {showFlash && (
+        <div role={type === 'error' ? 'alert' : 'status'} className={`pointer-events-auto flex max-w-full items-center gap-3 rounded-2xl border px-4 py-3 shadow-2xl ${bgColors[type]} animate-in slide-in-from-top-4 fade-in duration-300 sm:rounded-full sm:px-6 sm:py-4`}>
+          {icons[type]}
+          <span className="min-w-0 break-words text-sm font-medium">{message}</span>
+          <button type="button" onClick={onClose} className="ml-1 shrink-0 rounded-full p-0.5 hover:opacity-70" aria-label={t('closeNotification')}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
 };

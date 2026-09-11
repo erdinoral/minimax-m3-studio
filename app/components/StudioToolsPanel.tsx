@@ -53,7 +53,7 @@ interface CatalogModel {
 
 const CARD = 'rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-white/10 dark:bg-white/[0.03]';
 const CONTROL =
-  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-pink-500 disabled:opacity-50 dark:border-white/10 dark:bg-black/30 dark:text-white';
+  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-500 disabled:opacity-50 dark:border-white/10 dark:bg-black/30 dark:text-white';
 
 const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 
@@ -188,13 +188,13 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pink-500">{t('studioTools')}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-500">{t('studioTools')}</p>
             <h1 className="mt-1 text-2xl font-bold text-zinc-950 dark:text-white">{t('toolsHeading')}</h1>
             <p className="mt-2 max-w-3xl text-sm text-zinc-600 dark:text-zinc-400">{t('toolsIntro')}</p>
           </div>
           <button
             onClick={() => void loadSongs()}
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:border-pink-400 hover:text-pink-600 dark:border-white/10 dark:text-zinc-200"
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:border-emerald-400 hover:text-emerald-600 dark:border-white/10 dark:text-zinc-200"
           >
             <RefreshCw size={15} /> {t('refresh')}
           </button>
@@ -203,7 +203,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
         {/* Stems. */}
         <section className={CARD}>
           <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
-            <Scissors size={17} className="text-pink-500" /> {t('stemsTitle')}
+            <Scissors size={17} className="text-emerald-500" /> {t('stemsTitle')}
           </div>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{t('stemsHint')}</p>
 
@@ -230,12 +230,12 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
                   type="button"
                   onClick={() => setSongId(song.id)}
                   className={`flex w-full items-center gap-2 border-b border-zinc-100 px-3 py-2 text-left last:border-b-0 dark:border-white/5 ${
-                    song.id === songId ? 'bg-pink-500/10' : 'hover:bg-zinc-100 dark:hover:bg-white/5'
+                    song.id === songId ? 'bg-emerald-500/10' : 'hover:bg-zinc-100 dark:hover:bg-white/5'
                   }`}
                 >
-                  <Music size={13} className={song.id === songId ? 'shrink-0 text-pink-500' : 'shrink-0 text-zinc-400'} />
+                  <Music size={13} className={song.id === songId ? 'shrink-0 text-emerald-500' : 'shrink-0 text-zinc-400'} />
                   <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-200">{song.title}</span>
-                  {song.id === songId && <Check size={14} className="shrink-0 text-pink-500" />}
+                  {song.id === songId && <Check size={14} className="shrink-0 text-emerald-500" />}
                 </button>
               ))}
               {hidden > 0 && (
@@ -259,11 +259,11 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
                       }}
                       className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
                         chosen
-                          ? 'border-pink-400 bg-pink-500/10 text-zinc-900 dark:text-white'
+                          ? 'border-emerald-400 bg-emerald-500/10 text-zinc-900 dark:text-white'
                           : 'border-zinc-200 text-zinc-500 dark:border-white/10'
                       }`}
                     >
-                      <span className={`grid h-3.5 w-3.5 place-items-center rounded ${chosen ? 'bg-pink-500 text-white' : 'bg-zinc-200 dark:bg-white/10'}`}>
+                      <span className={`grid h-3.5 w-3.5 place-items-center rounded ${chosen ? 'bg-emerald-500 text-white' : 'bg-zinc-200 dark:bg-white/10'}`}>
                         {chosen && <Check size={9} strokeWidth={3} />}
                       </span>
                       {t(`stem_${stem}` as never) || stem}
@@ -305,7 +305,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
                     onClick={() => void saveSettings({ ...settings, overlap: quality.overlap })}
                     className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold ${
                       Math.abs(settings.overlap - quality.overlap) < 0.01
-                        ? 'border-pink-400 bg-pink-500/10 text-zinc-900 dark:text-white'
+                        ? 'border-emerald-400 bg-emerald-500/10 text-zinc-900 dark:text-white'
                         : 'border-zinc-200 text-zinc-500 dark:border-white/10'
                     }`}
                   >
@@ -320,7 +320,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
               type="button"
               onClick={() => void separate()}
               disabled={!status?.ready || !songId || settings.stems.length === 0 || running || busy}
-              className="mt-3 inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-pink-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-3 inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
               {stems.length > 0 ? t('stemsAgain') : t('stemsStart')}
@@ -336,7 +336,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
                 <div className="mt-2">
                   <div className="h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-black/30">
                     <div
-                      className="h-full bg-gradient-to-r from-orange-500 to-pink-500 transition-[width]"
+                      className="h-full bg-gradient-to-r from-emerald-500 to-green-500 transition-[width]"
                       style={{ width: `${Math.round((download.downloaded_bytes / Math.max(1, download.total_bytes)) * 100)}%` }}
                     />
                   </div>
@@ -360,11 +360,11 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
           {running && (
             <div className="mt-3">
               <div className="flex items-center justify-between text-xs font-medium text-zinc-700 dark:text-zinc-200">
-                <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin text-pink-500" />{t('stemsRunning')}</span>
+                <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin text-emerald-500" />{t('stemsRunning')}</span>
                 <span className="tabular-nums text-zinc-500">{percent}%</span>
               </div>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-black/30">
-                <div className="h-full bg-gradient-to-r from-orange-500 to-pink-500 transition-[width]" style={{ width: `${percent}%` }} />
+                <div className="h-full bg-gradient-to-r from-emerald-500 to-green-500 transition-[width]" style={{ width: `${percent}%` }} />
               </div>
             </div>
           )}
@@ -381,7 +381,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
                     <a
                       href={url}
                       download={`${songs.find(song => song.id === songId)?.title ?? 'track'} - ${stem}.wav`}
-                      className="shrink-0 text-zinc-400 hover:text-pink-500"
+                      className="shrink-0 text-zinc-400 hover:text-emerald-500"
                       title={t('download')}
                     >
                       <Download size={15} />
@@ -400,7 +400,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
         {/* The audio editor, on the track chosen above or on any stem it produced. */}
         <section className={CARD}>
           <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
-            <SlidersHorizontal size={17} className="text-pink-500" /> {t('audioEditor')}
+            <SlidersHorizontal size={17} className="text-emerald-500" /> {t('audioEditor')}
           </div>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{t('audioEditorIntro')}</p>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -412,7 +412,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
                 void openExternal(apiUrl(`/editor/index.html?audioUrl=${encodeURIComponent(url)}`));
               }}
               disabled={!songId}
-              className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 hover:border-pink-400 hover:text-pink-600 disabled:opacity-50 dark:border-white/15 dark:text-zinc-200"
+              className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-50 dark:border-white/15 dark:text-zinc-200"
             >
               <SlidersHorizontal size={13} /> {t('openTrackInEditor')}
             </button>
@@ -424,7 +424,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
                   const url = apiUrl(`/v1/library/songs/${encodeURIComponent(songId)}/stems/${stem}`);
                   void openExternal(apiUrl(`/editor/index.html?audioUrl=${encodeURIComponent(url)}`));
                 }}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-600 hover:border-pink-400 hover:text-pink-600 dark:border-white/10 dark:text-zinc-300"
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-600 hover:border-emerald-400 hover:text-emerald-600 dark:border-white/10 dark:text-zinc-300"
               >
                 {t(`stem_${stem}` as never) || stem}
               </button>
@@ -435,7 +435,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
         {/* Transcription. */}
         <section className={CARD}>
           <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
-            <FileAudio size={17} className="text-pink-500" /> {t('transcribeAudio')}
+            <FileAudio size={17} className="text-emerald-500" /> {t('transcribeAudio')}
           </div>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{t('transcribeIntro')}</p>
 
@@ -470,7 +470,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
             type="button"
             onClick={() => void transcribe()}
             disabled={!asrFile || !asrModel || asrBusy}
-            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-pink-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             {asrBusy ? <Loader2 size={14} className="animate-spin" /> : <FileAudio size={14} />} {t('transcribeAudio')}
           </button>
@@ -481,7 +481,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
               <button
                 type="button"
                 onClick={() => void copyText()}
-                className="mt-2 inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-pink-400 hover:text-pink-600 dark:border-white/15 dark:text-zinc-200"
+                className="mt-2 inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-emerald-400 hover:text-emerald-600 dark:border-white/15 dark:text-zinc-200"
               >
                 {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? t('copied') : t('copy')}
               </button>

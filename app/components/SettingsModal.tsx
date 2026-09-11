@@ -23,8 +23,11 @@ import { CoverTemplateSettings } from './CoverTemplateSettings';
 /// capability drawn twice, and the two drawings disagreed.
 type SectionId = 'account' | 'models' | 'engine' | 'cloud' | 'covers' | 'interface' | 'about';
 
+const ACCOUNT_SECTIONS: SectionId[] = ['account', 'about'];
+const SETTINGS_SECTIONS: SectionId[] = ['models', 'engine', 'cloud', 'covers', 'interface'];
+
 const INPUT =
-  'w-full rounded-lg border-2 border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-900 outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white';
+  'w-full rounded-lg border-2 border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-900 outline-none focus:border-emerald-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -33,21 +36,33 @@ interface SettingsModalProps {
   onClose: () => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  /// account = Hesap+Hakkında modal; settings = Models/Engine/… technical pages.
+  variant?: 'account' | 'settings';
+  /// Full-page Settings view (no dimmed overlay).
+  embedded?: boolean;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, initialSection, onClose, theme, onToggleTheme }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({
+  isOpen,
+  initialSection,
+  onClose,
+  theme,
+  onToggleTheme,
+  variant = 'account',
+  embedded = false,
+}) => {
   const { user, setDisplayName } = useAuth();
   const { t, language, setLanguage } = useI18n();
-  const [section, setSection] = useState<SectionId>('account');
+  const allowed = variant === 'settings' ? SETTINGS_SECTIONS : ACCOUNT_SECTIONS;
+  const [section, setSection] = useState<SectionId>(allowed[0]);
   // Opened from somewhere with a page in mind - the profile line, say.
   useEffect(() => {
-    // Only a section that exists. Two of them were removed - the assistant and
-    // karaoke are set up where they are installed now - and a button still
-    // pointed at one, which silently opened whatever was first instead.
-    if (initialSection && sections.some((entry) => entry.id === initialSection)) {
+    if (initialSection && allowed.includes(initialSection as SectionId)) {
       setSection(initialSection as SectionId);
+    } else if (!allowed.includes(section)) {
+      setSection(allowed[0]);
     }
-  }, [initialSection]);
+  }, [initialSection, variant]);
   const [showLangInfo, setShowLangInfo] = useState(false);
   const langInfoRef = useRef<HTMLDivElement>(null);
 
@@ -62,7 +77,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, initialSec
 
   if (!isOpen) return null;
 
-  const sections: Array<{ id: SectionId; label: string; hint: string; icon: React.ReactNode }> = [
+  const allSections: Array<{ id: SectionId; label: string; hint: string; icon: React.ReactNode }> = [
     { id: 'account', label: t('account'), hint: t('accountSectionHint'), icon: <UserIcon size={16} /> },
     { id: 'models', label: t('modelsSection'), hint: t('modelsSectionHint'), icon: <Boxes size={16} /> },
     { id: 'engine', label: t('localEngine'), hint: t('engineSectionHint'), icon: <Cpu size={16} /> },
@@ -71,17 +86,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, initialSec
     { id: 'interface', label: t('appearance'), hint: t('interfaceSectionHint'), icon: <Monitor size={16} /> },
     { id: 'about', label: t('about'), hint: t('aboutSectionHint'), icon: <Info size={16} /> },
   ];
+  const sections = allSections.filter((entry) => allowed.includes(entry.id));
 
   const active = sections.find((entry) => entry.id === section) ?? sections[0];
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+  const panel = (
       <div
-        className="flex h-[85vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-zinc-900"
-        onClick={(event) => event.stopPropagation()}
+        className={`${embedded ? 'flex h-full min-h-0 w-full overflow-hidden bg-white dark:bg-suno-panel' : 'flex h-[85vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-zinc-900'}`}
+        onClick={embedded ? undefined : (event) => event.stopPropagation()}
       >
         <nav className="hidden w-60 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 p-3 dark:border-white/5 dark:bg-black/20 sm:flex">
-          <h2 className="px-2 pb-3 pt-2 text-lg font-bold text-zinc-900 dark:text-white">{t('settings')}</h2>
+          <h2 className="px-2 pb-3 pt-2 text-lg font-bold text-zinc-900 dark:text-white">{variant === 'account' ? t('account') : t('settings')}</h2>
           <div className="space-y-1">
             {sections.map((entry) => (
               <button
@@ -169,6 +184,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, initialSec
                     </div>
                   </div>
                   <select value={language} onChange={(event) => setLanguage(event.target.value as Language)} className={INPUT}>
+                    <option value="tr">{t('turkishLanguage')}</option>
                     <option value="ru">{t('russianLanguage')}</option>
                     <option value="en">{t('english')}</option>
                     <option value="zh">{t('chinese')}</option>
@@ -205,44 +221,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, initialSec
                   <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('poweredBy')}</p>
                 </div>
 
-                {/* Whose studio this is, and where to find the rest of it. */}
                 <div className="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-700/50">
-                  <p className="font-medium text-zinc-900 dark:text-white">Nerual Dreming</p>
-                  <p className="text-xs leading-5">{t('authorLine')}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <a href="https://t.me/nerual_dreming" target="_blank" rel="noopener noreferrer" className="rounded-lg bg-[#2AABEE] px-3 py-1.5 text-xs font-medium text-white">Telegram · @nerual_dreming</a>
-                    <a href="https://t.me/neuroport" target="_blank" rel="noopener noreferrer" className="rounded-lg bg-[#2AABEE]/80 px-3 py-1.5 text-xs font-medium text-white">Telegram · @neuroport</a>
-                    <a href="https://github.com/timoncool" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-700">
-                      <Github size={14} />timoncool
-                    </a>
-                    <a href="https://neuro-cartel.com" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-200">neuro-cartel.com</a>
-                    <a href="https://artgeneration.me" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-200">ArtGeneration.me</a>
-                  </div>
-                </div>
-
-                {/* Support, in the author's own words: the software is free. */}
-                <div className="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-700/50">
-                  <p className="font-medium text-zinc-900 dark:text-white">{t('supportTheAuthor')}</p>
-                  <p className="text-xs leading-5">{t('supportLine')}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <a href="https://boosty.to/neuro_art" target="_blank" rel="noopener noreferrer" className="rounded-lg bg-[#F15F2C] px-3 py-1.5 text-xs font-semibold text-white">Boosty</a>
-                    <a href="https://dalink.to/nerual_dreming" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-200">{t('allLinks')}</a>
-                  </div>
-                  <div className="space-y-1 rounded-lg bg-zinc-100 p-3 font-mono text-[11px] text-zinc-600 dark:bg-black/30 dark:text-zinc-400">
-                    <div><span className="text-zinc-400">BTC</span> 1E7dHL22RpyhJGVpcvKdbyZgksSYkYeEBC</div>
-                    <div><span className="text-zinc-400">ETH</span> 0xb5db65adf478983186d4897ba92fe2c25c594a0c</div>
-                    <div><span className="text-zinc-400">USDT · TRC20</span> TQST9Lp2TjK6FiVkn4fwfGUee7NmkxEE7C</div>
-                  </div>
-                </div>
-
-                <div className="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-700/50">
-                  <p className="font-medium text-zinc-900 dark:text-white">{t('thisStudio')}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <a href="https://github.com/timoncool/MiniMax-Music3-Studio" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-700">
-                      <Github size={14} />MiniMax Music3 Studio
-                    </a>
-                    <a href="https://github.com/timoncool/MiniMax-Music3-Studio/issues" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-200">{t('reportIssues')}</a>
-                  </div>
+                  <p className="font-medium text-zinc-900 dark:text-white">{t('aboutForkTitle')}</p>
+                  <p className="text-xs leading-5">{t('aboutForkThanks')}</p>
+                  <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-500">{t('aboutForkCredit')}</p>
+                  <a
+                    href="https://github.com/timoncool/MiniMax-Music3-Studio"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-700"
+                  >
+                    <Github size={14} />
+                    Upstream · MiniMax Music3 Studio
+                  </a>
                 </div>
               </div>
             )}
@@ -255,6 +246,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, initialSec
           </div>
         </div>
       </div>
+  );
+
+  if (embedded) return panel;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      {panel}
     </div>
   );
 };

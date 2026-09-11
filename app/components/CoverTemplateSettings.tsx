@@ -21,7 +21,7 @@ interface CoverTemplate {
 }
 
 const CONTROL =
-  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-pink-500 dark:border-white/10 dark:bg-black/20 dark:text-white';
+  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-500 dark:border-white/10 dark:bg-black/20 dark:text-white';
 
 const PLACEHOLDERS = ['title', 'style', 'lyrics', 'excerpt', 'duration'];
 
@@ -97,7 +97,7 @@ export const CoverTemplateSettings: React.FC = () => {
           type="checkbox"
           checked={auto}
           onChange={event => void save(templates, defaultId, event.target.checked)}
-          className="mt-0.5 h-4 w-4 accent-pink-500"
+          className="mt-0.5 h-4 w-4 accent-emerald-500"
         />
         <span className="min-w-0">
           <span className="block text-sm font-medium text-zinc-900 dark:text-white">{t('coverAuto')}</span>
@@ -113,7 +113,7 @@ export const CoverTemplateSettings: React.FC = () => {
             onClick={() => setEditingId(entry.id)}
             className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${
               entry.id === editingId
-                ? 'bg-pink-500/15 text-pink-600 dark:text-pink-300'
+                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
                 : 'bg-zinc-200/70 text-zinc-600 dark:bg-white/10 dark:text-zinc-300'
             }`}
           >
@@ -128,7 +128,7 @@ export const CoverTemplateSettings: React.FC = () => {
             void save([...templates, { id, name: t('coverPromptMyStyle'), template: t('coverPromptTemplatePlaceholder') }], defaultId);
             setEditingId(id);
           }}
-          className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-500 hover:border-pink-400 hover:text-pink-600 dark:border-white/15"
+          className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-500 hover:border-emerald-400 hover:text-emerald-600 dark:border-white/15"
         >
           <Plus size={12} />{t('coverTemplateAdd')}
         </button>
@@ -158,7 +158,7 @@ export const CoverTemplateSettings: React.FC = () => {
                 key={name}
                 type="button"
                 onClick={() => update({ template: `${editing.template}{${name}}` })}
-                className="rounded-full bg-zinc-200/70 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 hover:bg-pink-500/15 hover:text-pink-600 dark:bg-white/10 dark:text-zinc-300"
+                className="rounded-full bg-zinc-200/70 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 hover:bg-emerald-500/15 hover:text-emerald-600 dark:bg-white/10 dark:text-zinc-300"
               >
                 {`{${name}}`}
               </button>

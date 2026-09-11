@@ -28,11 +28,11 @@ const DEFAULTS: EngineOptions = {
 };
 
 const CONTROL =
-  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-pink-500 dark:border-white/10 dark:bg-black/20 dark:text-white';
+  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-500 dark:border-white/10 dark:bg-black/20 dark:text-white';
 
 const Toggle: React.FC<{ label: string; hint: string; checked: boolean; onChange: (value: boolean) => void }> = ({ label, hint, checked, onChange }) => (
   <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200 p-3 dark:border-white/10">
-    <input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} className="mt-0.5 h-4 w-4 accent-pink-500" />
+    <input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" />
     <span className="min-w-0">
       <span className="block text-sm font-medium text-zinc-800 dark:text-zinc-100">{label}</span>
       <span className="mt-0.5 block text-xs leading-5 text-zinc-500 dark:text-zinc-400">{hint}</span>
@@ -121,7 +121,7 @@ export const EngineSettings: React.FC = () => {
   return (
     <div className="space-y-3">
       <h4 className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
-        <Cpu size={16} className="text-pink-500" /> {t('localEngine')}
+        <Cpu size={16} className="text-emerald-500" /> {t('localEngine')}
       </h4>
 
       <Toggle
@@ -183,7 +183,7 @@ export const EngineSettings: React.FC = () => {
           type="button"
           onClick={() => void save()}
           disabled={!dirty || busy}
-          className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-pink-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
         >
           {busy ? <Loader2 size={14} className="animate-spin" /> : null} {t('saveAndRestartEngine')}
         </button>
@@ -191,7 +191,7 @@ export const EngineSettings: React.FC = () => {
           type="button"
           onClick={() => void restart()}
           disabled={busy}
-          className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 hover:border-pink-400 hover:text-pink-600 disabled:opacity-50 dark:border-white/15 dark:text-zinc-200"
+          className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-50 dark:border-white/15 dark:text-zinc-200"
         >
           <RotateCw size={13} /> {t('restartEngine')}
         </button>
@@ -201,7 +201,7 @@ export const EngineSettings: React.FC = () => {
         <button
           type="button"
           onClick={() => setLogsOpen(open => !open)}
-          className="flex w-full items-center gap-2 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-zinc-500 hover:text-pink-500"
+          className="flex w-full items-center gap-2 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-zinc-500 hover:text-emerald-500"
         >
           <Terminal size={13} /> {t('engineLog')}
         </button>

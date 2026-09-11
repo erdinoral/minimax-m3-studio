@@ -10,12 +10,19 @@ export default {
     extend: {
       colors: {
         suno: {
-          DEFAULT: '#09090b',
-          sidebar: '#000000',
+          DEFAULT: '#121214',
+          sidebar: '#121214',
           panel: '#121214',
           card: '#18181b',
           hover: '#27272a',
           border: '#27272a',
+        },
+        // Spotify-like brand green for CTAs, playing state, focus.
+        brand: {
+          DEFAULT: '#1DB954',
+          soft: '#1ed760',
+          deep: '#169c46',
+          muted: 'rgba(29, 185, 84, 0.12)',
         },
       },
       fontFamily: {

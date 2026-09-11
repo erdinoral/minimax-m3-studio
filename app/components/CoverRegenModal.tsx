@@ -40,7 +40,7 @@ interface CoverTemplate {
 }
 
 const CONTROL =
-  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-pink-500 dark:border-white/10 dark:bg-black/20 dark:text-white';
+  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-500 dark:border-white/10 dark:bg-black/20 dark:text-white';
 
 const defaultPrompt = (song: Song) =>
   `Album cover artwork for a track titled "${song.title}". Style: ${song.style || 'contemporary'}. No text, no lettering, square composition.`;
@@ -198,7 +198,7 @@ export const CoverRegenModal: React.FC<CoverRegenModalProps> = ({ song, onClose,
       <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-zinc-900" onClick={event => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4 dark:border-white/10">
           <h3 className="flex items-center gap-2 text-base font-bold text-zinc-900 dark:text-white">
-            <ImageIcon size={18} className="text-pink-500" /> {t('coverArt')}
+            <ImageIcon size={18} className="text-emerald-500" /> {t('coverArt')}
           </h3>
           <button type="button" onClick={onClose} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
             <X size={18} />
@@ -225,7 +225,7 @@ export const CoverRegenModal: React.FC<CoverRegenModalProps> = ({ song, onClose,
             <button
               type="button"
               onClick={() => fileInput.current?.click()}
-              className="mt-2 inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 hover:border-pink-400 hover:text-pink-600 dark:border-white/15 dark:text-zinc-200"
+              className="mt-2 inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 hover:border-emerald-400 hover:text-emerald-600 dark:border-white/15 dark:text-zinc-200"
             >
               <Upload size={13} /> {t('useImageFile')}
             </button>
@@ -279,7 +279,7 @@ export const CoverRegenModal: React.FC<CoverRegenModalProps> = ({ song, onClose,
               <button
                 type="button"
                 onClick={() => setEditingTemplate(current => !current)}
-                className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-600 hover:border-pink-400 hover:text-pink-600 dark:border-white/15 dark:text-zinc-300"
+                className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-600 hover:border-emerald-400 hover:text-emerald-600 dark:border-white/15 dark:text-zinc-300"
               >
                 {editingTemplate ? t('coverPromptDoneEditing') : t('coverPromptEditTemplate')}
               </button>
@@ -301,7 +301,7 @@ export const CoverRegenModal: React.FC<CoverRegenModalProps> = ({ song, onClose,
                       key={name}
                       type="button"
                       onClick={() => setTemplateText(current => current + '{' + name + '}')}
-                      className="rounded-full bg-zinc-200/70 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 hover:bg-pink-500/15 hover:text-pink-600 dark:bg-white/10 dark:text-zinc-300"
+                      className="rounded-full bg-zinc-200/70 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 hover:bg-emerald-500/15 hover:text-emerald-600 dark:bg-white/10 dark:text-zinc-300"
                     >
                       {'{' + name + '}'}
                     </button>
@@ -353,7 +353,7 @@ export const CoverRegenModal: React.FC<CoverRegenModalProps> = ({ song, onClose,
               type="button"
               onClick={() => void generate()}
               disabled={!canGenerate || busy !== null || !prompt.trim()}
-              className="mt-2 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-pink-600 px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-2 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy === 'generate' ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} {t('generate')}
             </button>

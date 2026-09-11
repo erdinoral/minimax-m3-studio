@@ -43,7 +43,7 @@ export const StudioOffline: React.FC = () => {
               .catch(() => undefined)
               .finally(() => setChecking(false));
           }}
-          className="mt-5 inline-flex items-center gap-2 rounded-xl border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:border-pink-400 hover:text-pink-600 dark:border-white/15 dark:text-zinc-200"
+          className="mt-5 inline-flex items-center gap-2 rounded-xl border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:border-emerald-400 hover:text-emerald-600 dark:border-white/15 dark:text-zinc-200"
         >
           <RefreshCw size={15} className={checking ? 'animate-spin' : undefined} />
           {t('studioOfflineRetry')}

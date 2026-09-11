@@ -263,8 +263,8 @@ export const OptionalGroup: React.FC<{
                     onClick={() => void remember({ engine: choice.id })}
                     className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
                       engine === choice.id
-                        ? 'border-pink-500 bg-pink-500/10 text-zinc-900 dark:text-white'
-                        : 'border-zinc-200 text-zinc-500 hover:border-pink-300 hover:bg-pink-500/5 hover:text-zinc-900 dark:border-white/10 dark:hover:border-pink-500/40 dark:hover:text-white'
+                        ? 'border-emerald-500 bg-emerald-500/10 text-zinc-900 dark:text-white'
+                        : 'border-zinc-200 text-zinc-500 hover:border-emerald-300 hover:bg-emerald-500/5 hover:text-zinc-900 dark:border-white/10 dark:hover:border-emerald-500/40 dark:hover:text-white'
                     }`}
                   >
                     {choice.label}
@@ -303,7 +303,7 @@ export const OptionalGroup: React.FC<{
                       value={apiKey}
                       onChange={(event) => setApiKey(event.target.value)}
                       placeholder={keyStored ? '••••••••' : 'sk-or-...'}
-                      className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-xs text-zinc-900 outline-none focus:border-pink-400 dark:border-white/10 dark:bg-black/20 dark:text-white"
+                      className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-xs text-zinc-900 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-black/20 dark:text-white"
                     />
                     <button
                       type="button"
@@ -320,7 +320,7 @@ export const OptionalGroup: React.FC<{
                           })
                           .catch((error: Error) => setFailed(error.message));
                       }}
-                      className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 hover:border-pink-400 hover:text-pink-600 dark:border-white/15 dark:text-zinc-200"
+                      className="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 hover:border-emerald-400 hover:text-emerald-600 dark:border-white/15 dark:text-zinc-200"
                     >
                       {t('save')}
                     </button>
@@ -348,7 +348,7 @@ export const OptionalGroup: React.FC<{
                 // buttons that change that.
                 <div className="rounded-lg border border-zinc-200 px-2.5 py-2 dark:border-white/10">
                   <div className="flex items-center gap-2.5">
-                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${ready ? 'bg-pink-500' : 'bg-zinc-400'}`} />
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${ready ? 'bg-emerald-500' : 'bg-zinc-400'}`} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-xs font-medium text-zinc-900 dark:text-white">
                         {engines.find((choice) => choice.id === engine)?.label}
@@ -384,7 +384,7 @@ export const OptionalGroup: React.FC<{
                             }).catch(() => undefined);
                           }
                         }}
-                        className="shrink-0 rounded-md border border-zinc-200 bg-white px-2 py-1 text-[11px] tabular-nums text-zinc-800 outline-none focus:border-pink-400 dark:border-white/10 dark:bg-black/20 dark:text-zinc-100"
+                        className="shrink-0 rounded-md border border-zinc-200 bg-white px-2 py-1 text-[11px] tabular-nums text-zinc-800 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-black/20 dark:text-zinc-100"
                       >
                         {models.map((asset) => (
                           <option key={asset.id} value={asset.id}>
@@ -395,7 +395,7 @@ export const OptionalGroup: React.FC<{
                     )}
                     {busy ? (
                       <>
-                        <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-pink-500">{percent}%</span>
+                        <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-emerald-500">{percent}%</span>
                         {cancelUrl && (
                           <button
                             type="button"
@@ -432,7 +432,7 @@ export const OptionalGroup: React.FC<{
                               .catch((error: Error) => setFailed(error.message));
                           }}
                           title={t('download')}
-                          className="shrink-0 rounded-md border border-zinc-300 p-1.5 text-zinc-600 transition-colors hover:border-pink-400 hover:bg-pink-500/10 hover:text-pink-600 dark:border-white/15 dark:text-zinc-300"
+                          className="shrink-0 rounded-md border border-zinc-300 p-1.5 text-zinc-600 transition-colors hover:border-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-600 dark:border-white/15 dark:text-zinc-300"
                         >
                           <Download size={13} />
                         </button>
@@ -463,7 +463,7 @@ export const OptionalGroup: React.FC<{
                   </div>
                   {busy && (
                     <div className="mt-2 h-1 overflow-hidden rounded-full bg-zinc-200 dark:bg-black/30">
-                      <div className="h-full bg-gradient-to-r from-orange-500 to-pink-500 transition-[width]" style={{ width: `${percent}%` }} />
+                      <div className="h-full bg-gradient-to-r from-emerald-500 to-green-500 transition-[width]" style={{ width: `${percent}%` }} />
                     </div>
                   )}
                 </div>
@@ -527,7 +527,7 @@ export const OptionalGroup: React.FC<{
                             .catch((error: Error) => setFailed(error.message));
                         }}
                         disabled={Boolean(status?.active_download && !status.active_download.done)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-600 hover:border-pink-400 hover:text-pink-600 disabled:opacity-40 dark:border-white/15 dark:text-zinc-300"
+                        className="inline-flex items-center gap-1 rounded-lg border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-600 hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-40 dark:border-white/15 dark:text-zinc-300"
                       >
                         {active ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
                         {active ? `${percent}%` : t('download')}
@@ -538,7 +538,7 @@ export const OptionalGroup: React.FC<{
                 <p className="mt-1 text-[11px] leading-4 text-zinc-500">{asset.note}</p>
                 {active && (
                   <div className="mt-2 h-1 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
-                    <div className="h-full bg-pink-500 transition-[width]" style={{ width: `${percent}%` }} />
+                    <div className="h-full bg-emerald-500 transition-[width]" style={{ width: `${percent}%` }} />
                   </div>
                 )}
               </div>
@@ -696,8 +696,8 @@ export const SetupGate: React.FC<{ onReady?: () => void; mode?: 'first-run' | 's
     <div className="flex h-full w-full justify-center overflow-y-auto bg-white px-5 py-10 dark:bg-suno">
       <div className="w-full max-w-2xl">
         {mode === 'first-run' && (
-          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-pink-500">
-            <span className="h-2 w-2 rounded-full bg-pink-500 shadow-[0_0_10px_rgba(236,72,153,0.75)]" />
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-emerald-500">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(236,72,153,0.75)]" />
             {t('firstRun')}
           </div>
         )}
@@ -714,8 +714,8 @@ export const SetupGate: React.FC<{ onReady?: () => void; mode?: 'first-run' | 's
           </div>
         )}
 
-        {mode === 'first-run' && <div className="mt-5 rounded-xl border border-pink-300/50 bg-pink-50 px-4 py-3 text-sm text-zinc-700 dark:border-pink-500/25 dark:bg-pink-500/10 dark:text-zinc-200">
-          <span className="font-semibold text-pink-600 dark:text-pink-400">{t('recommendedForMachine')}</span>{' '}
+        {mode === 'first-run' && <div className="mt-5 rounded-xl border border-emerald-300/50 bg-emerald-50 px-4 py-3 text-sm text-zinc-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-zinc-200">
+          <span className="font-semibold text-emerald-600 dark:text-emerald-400">{t('recommendedForMachine')}</span>{' '}
           {/* The card, its memory, and the set that fits - named as the set is
               named in the list below. The server's own sentence was English
               prose in a Russian window, and it called the answer "Native
@@ -734,7 +734,7 @@ export const SetupGate: React.FC<{ onReady?: () => void; mode?: 'first-run' | 's
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-zinc-900 dark:text-white">{t('engineGroupTitle')}</span>
-                <span className="rounded-full bg-pink-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-pink-600 dark:text-pink-300">{t('requiredBadge')}</span>
+                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">{t('requiredBadge')}</span>
               </div>
               <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{t('engineGroupHint')}</p>
             </div>
@@ -770,13 +770,13 @@ export const SetupGate: React.FC<{ onReady?: () => void; mode?: 'first-run' | 's
                           setChoice(picked);
                         }}
                         className={`block w-full rounded-xl border p-3 text-left transition-colors ${
-                          active ? 'border-pink-400 bg-pink-500/10' : 'border-zinc-200 hover:border-pink-300 dark:border-white/10'
+                          active ? 'border-emerald-400 bg-emerald-500/10' : 'border-zinc-200 hover:border-emerald-300 dark:border-white/10'
                         }`}
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-zinc-900 dark:text-white">{profile.label}</span>
                           {profile.recommended && (
-                            <span className="rounded-full bg-pink-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-pink-600 dark:text-pink-300">
+                            <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">
                               {t('recommendedBadge')}
                             </span>
                           )}
@@ -821,7 +821,7 @@ export const SetupGate: React.FC<{ onReady?: () => void; mode?: 'first-run' | 's
                       value={selectedId}
                       onChange={(event) => setChoice((current) => ({ ...current, [group.kind]: event.target.value }))}
                       disabled={active?.status === 'downloading'}
-                      className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-pink-500 focus:outline-none disabled:opacity-50 dark:border-white/10 dark:bg-black/20 dark:text-white"
+                      className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:border-emerald-500 focus:outline-none disabled:opacity-50 dark:border-white/10 dark:bg-black/20 dark:text-white"
                     >
                       <option value="">{t('chooseComponent')}</option>
                       {group.components.map((component) => (
@@ -861,7 +861,7 @@ export const SetupGate: React.FC<{ onReady?: () => void; mode?: 'first-run' | 's
                 <button
                   type="button"
                   onClick={() => void fetch('/v1/open-data-directory', { method: 'POST' })}
-                  className="mt-2 inline-flex items-center gap-1 rounded-lg border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-600 hover:border-pink-400 hover:text-pink-600 dark:border-white/15 dark:text-zinc-300"
+                  className="mt-2 inline-flex items-center gap-1 rounded-lg border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-600 hover:border-emerald-400 hover:text-emerald-600 dark:border-white/15 dark:text-zinc-300"
                 >
                   <FolderOpen size={13} />
                   {t('openFolder')}
@@ -879,7 +879,7 @@ export const SetupGate: React.FC<{ onReady?: () => void; mode?: 'first-run' | 's
                       })
                       .catch(() => undefined);
                   }}
-                  className="ml-2 mt-2 inline-flex items-center gap-1 rounded-lg border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-600 hover:border-pink-400 hover:text-pink-600 dark:border-white/15 dark:text-zinc-300"
+                  className="ml-2 mt-2 inline-flex items-center gap-1 rounded-lg border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-600 hover:border-emerald-400 hover:text-emerald-600 dark:border-white/15 dark:text-zinc-300"
                 >
                   <FolderDown size={13} />
                   {t('useExistingModels')}
@@ -893,12 +893,12 @@ export const SetupGate: React.FC<{ onReady?: () => void; mode?: 'first-run' | 's
           <div className="mt-5 rounded-xl border border-zinc-200 bg-white p-4 dark:border-white/10 dark:bg-suno-card">
             <div className="flex items-center justify-between text-sm">
               <span className="flex items-center gap-2 font-medium text-zinc-700 dark:text-zinc-200">
-                <Loader2 size={16} className="animate-spin text-pink-500" />{t('downloading')}
+                <Loader2 size={16} className="animate-spin text-emerald-500" />{t('downloading')}
               </span>
               <span className="text-zinc-500">{progress.toFixed(1)}%</span>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-black/30">
-              <div className="h-full bg-gradient-to-r from-pink-500 to-purple-500 transition-[width]" style={{ width: `${progress}%` }} />
+              <div className="h-full bg-gradient-to-r from-emerald-500 to-purple-500 transition-[width]" style={{ width: `${progress}%` }} />
             </div>
             <div className="mt-2 text-xs text-zinc-500">{bytes(active.downloaded_bytes)} / {bytes(active.total_bytes)}</div>
           </div>
@@ -914,7 +914,7 @@ export const SetupGate: React.FC<{ onReady?: () => void; mode?: 'first-run' | 's
               type="button"
               onClick={() => void download()}
               disabled={starting || !chosenIds || missing.length === 0}
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-500 to-pink-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg transition-all hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg transition-all hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {starting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
               {missing.length === 0 ? t('everythingInstalled') : `${t('downloadSelectedProfile')} · ${bytes(selectedComponentBytes(catalog?.components || [], missing))}`}
@@ -924,7 +924,7 @@ export const SetupGate: React.FC<{ onReady?: () => void; mode?: 'first-run' | 's
             <button
               type="button"
               onClick={() => void apply()}
-              className="inline-flex items-center gap-2 rounded-xl border border-pink-400 px-4 py-2.5 text-sm font-semibold text-pink-600 hover:bg-pink-500/10 dark:border-pink-500/40 dark:text-pink-300"
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-400 px-4 py-2.5 text-sm font-semibold text-emerald-600 hover:bg-emerald-500/10 dark:border-emerald-500/40 dark:text-emerald-300"
             >
               <Check size={15} />{t('applySelection')}
             </button>

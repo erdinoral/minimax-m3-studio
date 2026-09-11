@@ -54,7 +54,7 @@ interface OpenRouterSettings {
 }
 
 const CONTROL =
-  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-pink-500 disabled:opacity-50 dark:border-white/10 dark:bg-black/20 dark:text-white';
+  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-500 disabled:opacity-50 dark:border-white/10 dark:bg-black/20 dark:text-white';
 
 export const ProviderSettings: React.FC = () => {
   const { t } = useI18n();
@@ -198,7 +198,7 @@ export const ProviderSettings: React.FC = () => {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h4 className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
-              <Cloud size={16} className="text-pink-500" /> OpenRouter
+              <Cloud size={16} className="text-emerald-500" /> OpenRouter
             </h4>
             <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
               {t('openRouterIntro')}
@@ -223,7 +223,7 @@ export const ProviderSettings: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowKey(value => !value)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-pink-500"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-emerald-500"
                 title={showKey ? 'Hide' : 'Show'}
               >
                 {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -233,7 +233,7 @@ export const ProviderSettings: React.FC = () => {
               type="button"
               disabled={!apiKey.trim() || busy === 'key'}
               onClick={() => void saveKey(apiKey)}
-              className="rounded-lg bg-gradient-to-r from-orange-500 to-pink-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+              className="rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
             >
               {busy === 'key' ? <Loader2 size={14} className="animate-spin" /> : t('saveKey')}
             </button>
@@ -260,7 +260,7 @@ export const ProviderSettings: React.FC = () => {
             type="button"
             onClick={() => void loadCatalog(true)}
             disabled={busy === 'catalog'}
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 hover:border-pink-400 hover:text-pink-600 disabled:opacity-50 dark:border-white/15 dark:text-zinc-200"
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-50 dark:border-white/15 dark:text-zinc-200"
           >
             <RefreshCw size={13} className={busy === 'catalog' ? 'animate-spin' : ''} /> {t('refreshCatalog')}
           </button>
@@ -270,7 +270,7 @@ export const ProviderSettings: React.FC = () => {
 
       <section className="space-y-3">
         <h4 className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
-          <Cpu size={16} className="text-pink-500" /> {t('capabilitiesSection')}
+          <Cpu size={16} className="text-emerald-500" /> {t('capabilitiesSection')}
         </h4>
         {/* Music and cover art only. Where the writing assistant and the
             karaoke recogniser run is chosen where they are installed, on the

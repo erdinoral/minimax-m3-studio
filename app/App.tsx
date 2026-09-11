@@ -45,9 +45,9 @@ function useResizablePanel(key: string, defaultWidth: number, min: number, max: 
   const handle = (
     <div
       onMouseDown={onMouseDown}
-      className="hidden md:flex w-[5px] flex-shrink-0 items-center justify-center cursor-col-resize group z-20 relative bg-zinc-200/50 dark:bg-zinc-800 hover:bg-pink-500/30 transition-colors"
+      className="hidden md:flex w-[5px] flex-shrink-0 items-center justify-center cursor-col-resize group z-20 relative bg-zinc-200/50 dark:bg-zinc-800 hover:bg-emerald-500/30 transition-colors"
     >
-      <div className="w-[3px] h-10 rounded-full bg-zinc-400/30 dark:bg-zinc-600/50 group-hover:bg-pink-500 transition-colors" />
+      <div className="w-[3px] h-10 rounded-full bg-zinc-400/30 dark:bg-zinc-600/50 group-hover:bg-emerald-500 transition-colors" />
     </div>
   );
 
@@ -60,14 +60,13 @@ import { I18nProvider, useI18n } from './context/I18nContext';
 import { List } from 'lucide-react';
 import { PlaylistDetail } from './components/PlaylistDetail';
 import { Toast, ToastType } from './components/Toast';
-import { SearchPage } from './components/SearchPage';
-import { NewsPage } from './components/NewsPage';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { SetupGate } from './components/SetupGate';
 import { EngineStarting } from './components/EngineStarting';
 import { StudioOffline } from './components/StudioOffline';
 import { StudioToolsPanel } from './components/StudioToolsPanel';
 import { createNativePlaylist, deleteNativeSong, loadNativeLibrarySongs, loadNativePlaylists, updateNativePlaylist } from './services/nativeLibrary';
+import { openCoverFromSong } from './services/openCover';
 
 const NATIVE_LIKED_SONG_IDS_KEY = 'minimax-music3-native-liked-song-ids';
 
@@ -140,8 +139,15 @@ function AppContent() {
       setCurrentView('tools');
     };
     const openSettings = (event: Event) => {
-      setSettingsSection((event as CustomEvent<string>).detail);
-      setShowSettingsModal(true);
+      const section = (event as CustomEvent<string>).detail;
+      setSettingsSection(section);
+      // Technical setup opens the Settings view; account stays a modal.
+      if (section === 'account' || section === 'about') {
+        setShowSettingsModal(true);
+      } else {
+        setCurrentView('settings');
+        window.history.pushState({}, '', '/settings');
+      }
     };
     window.addEventListener('mm3:open-stems', open);
     window.addEventListener('mm3:open-settings', openSettings);
@@ -161,10 +167,22 @@ function AppContent() {
   // the previous track's full completion (LLM + audio + cover) — that's the
   // user's "queue" mental model: gen N+1 starts only after gen N is done.
   const queueDrainResolversRef = useRef<Array<() => void>>([]);
-  const waitForJobsToDrain = useCallback((): Promise<void> => {
+  const waitForJobsToDrain = useCallback((signal?: AbortSignal): Promise<void> => {
+    if (signal?.aborted) {
+      return Promise.reject(new DOMException('Aborted', 'AbortError'));
+    }
     if (activeJobsRef.current.size === 0) return Promise.resolve();
-    return new Promise((resolve) => {
-      queueDrainResolversRef.current.push(resolve);
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        queueDrainResolversRef.current = queueDrainResolversRef.current.filter((r) => r !== settle);
+        reject(new DOMException('Aborted', 'AbortError'));
+      };
+      const settle = () => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      queueDrainResolversRef.current.push(settle);
     });
   }, []);
   const drainQueueWaiters = useCallback(() => {
@@ -172,6 +190,18 @@ function AppContent() {
     const waiters = queueDrainResolversRef.current;
     queueDrainResolversRef.current = [];
     waiters.forEach((r) => r());
+  }, []);
+
+  // Serial Create pipeline (lyrics → caption → music POST). One assistant
+  // write at a time; each item also waits for prior music jobs to free VRAM.
+  const createPipelineTailRef = useRef(Promise.resolve());
+  const enqueueCreatePipeline = useCallback((task: () => Promise<void>) => {
+    const next = createPipelineTailRef.current.then(task, task);
+    createPipelineTailRef.current = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }, []);
 
   // "Pending click" counter — bumped synchronously the moment the user
@@ -331,6 +361,8 @@ function AppContent() {
     type: 'success',
     isVisible: false,
   });
+  const [progressToasts, setProgressToasts] = useState<Array<{ id: string; message: string }>>([]);
+  const stemDoneRef = useRef<string | null>(null);
 
   // Confirm Dialog State
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -348,23 +380,90 @@ function AppContent() {
     setToast(prev => ({ ...prev, isVisible: false }));
   };
 
+  // Persistent top progress toasts for music jobs + stem separation.
+  useEffect(() => {
+    setProgressToasts((prev) => {
+      const stems = prev.filter((p) => p.id === 'stems');
+      if (activeJobCount <= 0) return stems;
+      const generating = songs.find((s) => s.isGenerating);
+      return [{
+        id: 'music',
+        message: generating?.title
+          ? `${t('creating')} ${generating.title}`
+          : `${t('creating')} (${activeJobCount})`,
+      }, ...stems];
+    });
+  }, [activeJobCount, songs, t]);
+
+  useEffect(() => {
+    const tick = async () => {
+      try {
+        const body = await fetch('/v1/separation/status').then((r) => (r.ok ? r.json() : null));
+        const run = body?.run;
+        if (run && !run.done) {
+          const pct = Math.round((run.progress ?? 0) * 100);
+          const title = songs.find((s) => s.id === run.song_id)?.title;
+          setProgressToasts((prev) => {
+            const rest = prev.filter((p) => p.id !== 'stems');
+            return [...rest, {
+              id: 'stems',
+              message: `${t('stemsRunning')}${title ? ` · ${title}` : ''} · ${pct}%`,
+            }];
+          });
+          stemDoneRef.current = run.song_id ?? null;
+        } else {
+          setProgressToasts((prev) => prev.filter((p) => p.id !== 'stems'));
+          if (run?.done && stemDoneRef.current) {
+            if (run.error) showToast(String(run.error), 'error');
+            else showToast(t('stemsTitle'), 'success');
+            stemDoneRef.current = null;
+            window.dispatchEvent(new CustomEvent('mm3:library-changed'));
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+    void tick();
+    const timer = window.setInterval(() => void tick(), 2000);
+    return () => window.clearInterval(timer);
+  }, [songs, t]);
+
   const refreshNativeLibrary = useCallback(async (): Promise<boolean> => {
     try {
       const [nativeSongs, nativePlaylists] = await Promise.all([loadNativeLibrarySongs(), loadNativePlaylists()]);
       setSongs(prev => {
-        const generatingSongs = prev.filter(song => song.isGenerating);
-        return [...generatingSongs, ...nativeSongs];
+        // Keep every in-flight card, including ones only tracked in activeJobsRef
+        // (a library refresh must not wipe generation just because the user left Create).
+        const generatingSongs = prev.filter((song) => song.isGenerating);
+        const seenJobs = new Set(generatingSongs.map((song) => song.jobId).filter(Boolean) as string[]);
+        const seenIds = new Set(generatingSongs.map((song) => song.id));
+        const extras: Song[] = [];
+        activeJobsRef.current.forEach(({ tempId }, jobId) => {
+          if (seenJobs.has(jobId) || seenIds.has(tempId)) return;
+          extras.push({
+            id: tempId,
+            title: t('generating') || 'Generating…',
+            lyrics: '',
+            style: '',
+            coverUrl: '',
+            duration: '--:--',
+            createdAt: new Date(),
+            isGenerating: true,
+            jobId,
+            stage: 'stageWaitingInQueue',
+            tags: ['music3'],
+          });
+        });
+        return [...extras, ...generatingSongs, ...nativeSongs];
       });
       setPlaylists(nativePlaylists);
       setLikedSongIds(loadNativeLikedSongIds());
-      // A fresh native library is still the authoritative store. Falling back
-      // to the retired ACE service when it is empty made ordinary first-run
-      // actions issue requests to a server that is not part of this desktop app.
       return true;
     } catch {
       return false;
     }
-  }, []);
+  }, [t]);
 
   /// Watches a re-render job to completion and refreshes the library when the
   /// new take lands.
@@ -473,10 +572,10 @@ function AppContent() {
           setViewingPlaylistId(playlistId);
           setCurrentView('playlist');
         }
-      } else if (path === '/search') {
-        setCurrentView('search');
-      } else if (path === '/news') {
-        setCurrentView('news');
+      } else if (path === '/tools') {
+        setCurrentView('tools');
+      } else if (path === '/settings') {
+        setCurrentView('settings');
       }
     };
 
@@ -779,11 +878,8 @@ function AppContent() {
   const cancelGeneration = useCallback(async (id: string) => {
     const preflightAc = preflightAbortersRef.current.get(id);
     if (preflightAc) {
+      // Abort only — the CreatePanel pipeline catch cleans the card + pending slot.
       preflightAc.abort();
-      preflightAbortersRef.current.delete(id);
-      setSongs(prev => prev.map(song => song.id === id ? { ...song, isGenerating: false, stage: 'cancelled' } : song));
-      decrementPendingClicks(1);
-      drainQueueWaiters();
       return;
     }
 
@@ -799,7 +895,7 @@ function AppContent() {
         song.id === jobData.tempId ? { ...song, isGenerating: false, stage: 'cancelled' } : song
       ));
     }
-  }, [drainQueueWaiters, decrementPendingClicks, stopEngineJob]);
+  }, [drainQueueWaiters, stopEngineJob]);
 
   /// Reset drops the card as well as the job: the engine is asked to stop, then
   /// the placeholder is removed so the list matches reality.
@@ -808,8 +904,9 @@ function AppContent() {
     if (!jobData) {
       const aborter = preflightAbortersRef.current.get(id);
       if (aborter) {
+        // Abort only — CreatePanel pipeline catch removes the card + pending slot.
         aborter.abort();
-        preflightAbortersRef.current.delete(id);
+        return;
       }
       setSongs(prev => prev.filter(song => song.id !== id));
       drainQueueWaiters();
@@ -885,16 +982,83 @@ function AppContent() {
           showToast(job.message || `${t('generationFailed')}`, job.status === 'failed' ? 'error' : 'info');
         }
       } catch (error) {
-        console.error(`Polling error for job ${jobId}:`, error);
-        cleanupJob(jobId, tempId);
-        setSongs(prev => prev.filter(song => song.id !== tempId));
-        showToast(error instanceof Error ? error.message : String(error), 'error');
+        // Transient status blips must not erase the card — generation keeps
+        // running on the server and the user still needs to see it after
+        // switching pages.
+        console.warn(`Polling hiccup for job ${jobId}:`, error);
       }
     }, 1500);
 
     activeJobsRef.current.set(jobId, { tempId, pollInterval });
     setActiveJobCount(activeJobsRef.current.size);
   }, [cleanupJob, refreshSongsList, t]);
+
+  // Keep in-flight jobs visible across page switches and reloads: reconcile
+  // from the server on a timer, not only once at mount.
+  useEffect(() => {
+    let cancelled = false;
+    const attachJob = (job: Music3Job) => {
+      const tempId = `resume_${job.id}`;
+      setIsGenerating(true);
+      setSongs((prev) => {
+        if (prev.some((song) => song.jobId === job.id || song.id === tempId)) return prev;
+        return [{
+          id: tempId,
+          title: job.title?.trim() || t('generating') || 'Generating…',
+          lyrics: job.lyrics || '',
+          style: job.caption || '',
+          coverUrl: '',
+          duration: '--:--',
+          createdAt: new Date(),
+          isGenerating: true,
+          jobId: job.id,
+          stage: 'stageWaitingInQueue',
+          tags: ['music3', 'resumed'],
+        }, ...prev];
+      });
+      beginPollingJob(job.id, tempId);
+    };
+
+    const reconcile = async () => {
+      try {
+        const response = await fetch('/v1/music/jobs');
+        if (!response.ok || cancelled) return;
+        const body: { jobs?: Music3Job[] } = await response.json();
+        const jobs = (body.jobs ?? []).filter((job) => job.status === 'queued' || job.status === 'running');
+        if (cancelled) return;
+        for (const job of jobs) attachJob(job);
+        // Also re-assert placeholders for jobs we are already polling (in case
+        // a library refresh or view switch dropped the card from `songs`).
+        activeJobsRef.current.forEach(({ tempId }, jobId) => {
+          setSongs((prev) => {
+            if (prev.some((song) => song.jobId === jobId || song.id === tempId)) return prev;
+            return [{
+              id: tempId,
+              title: t('generating') || 'Generating…',
+              lyrics: '',
+              style: '',
+              coverUrl: '',
+              duration: '--:--',
+              createdAt: new Date(),
+              isGenerating: true,
+              jobId,
+              stage: 'stageWaitingInQueue',
+              tags: ['music3'],
+            }, ...prev];
+          });
+        });
+      } catch {
+        // best-effort
+      }
+    };
+
+    void reconcile();
+    const timer = window.setInterval(() => void reconcile(), 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [beginPollingJob, t]);
 
   /// mm-server reports a phase, not a percentage, but its log ring counts the
   /// autoregressive frames and the flow-matching steps. Reading that gives the
@@ -1219,6 +1383,19 @@ function AppContent() {
       case 'tools':
         return <StudioToolsPanel initialSongId={stemsSongId} />;
 
+      case 'settings':
+        return (
+          <SettingsModal
+            isOpen
+            embedded
+            variant="settings"
+            initialSection={settingsSection ?? 'models'}
+            onClose={() => { setCurrentView('create'); window.history.pushState({}, '', '/'); setSettingsSection(null); }}
+            theme={theme}
+            onToggleTheme={toggleTheme}
+          />
+        );
+
       case 'library': {
         const allSongs = songs;
         return (
@@ -1234,6 +1411,11 @@ function AppContent() {
             onSelectPlaylist={(p) => handleNavigateToPlaylist(p.id)}
             onAddToPlaylist={openAddToPlaylistModal}
             onReusePrompt={handleReuse}
+            onCoverSong={(song) => {
+              setCurrentView('create');
+              window.history.pushState({}, '', '/');
+              openCoverFromSong(song);
+            }}
             onDeleteSong={handleDeleteSong}
             isNativeLibrary
             onImported={() => { void refreshNativeLibrary(); }}
@@ -1254,21 +1436,6 @@ function AppContent() {
             }}
           />
         );
-
-      case 'search':
-        return (
-          <SearchPage
-            songs={songs}
-            playlists={playlists}
-            onPlaySong={playSong}
-            currentSong={currentSong}
-            isPlaying={isPlaying}
-            onNavigateToPlaylist={handleNavigateToPlaylist}
-          />
-        );
-
-      case 'news':
-        return <NewsPage />;
 
       case 'create':
       default:
@@ -1300,6 +1467,15 @@ function AppContent() {
                 isGenerating={isGenerating}
                 activeJobCount={activeJobCount + pendingClickCount}
                 initialData={reuseData}
+                waitForJobsToDrain={waitForJobsToDrain}
+                enqueueCreatePipeline={enqueueCreatePipeline}
+                createTempSongForClick={createTempSongForClick}
+                updateTempSongForClick={updateTempSongForClick}
+                removeTempSongForClick={removeTempSongForClick}
+                incrementPendingClicks={incrementPendingClicks}
+                decrementPendingClicks={decrementPendingClicks}
+                registerPreflightAbort={registerPreflightAbort}
+                unregisterPreflightAbort={unregisterPreflightAbort}
               />
             </div>
             {leftPanel.handle}
@@ -1325,6 +1501,7 @@ function AppContent() {
                 onOpenCoverRegen={openCoverRegen}
                 onShowDetails={handleShowDetails}
                 onReusePrompt={handleReuse}
+                onCoverSong={(song) => openCoverFromSong(song)}
                 onReplayMusic={handleNativeReplay}
                 onExportVideo={setSongForVideo}
                 onDelete={handleDeleteSong}
@@ -1381,7 +1558,7 @@ function AppContent() {
   };
 
   return (
-    <div className="flex h-[100dvh] min-h-0 min-w-0 flex-col overflow-hidden bg-white dark:bg-suno text-zinc-900 dark:text-white font-sans antialiased selection:bg-pink-500/30 transition-colors duration-300">
+    <div className="flex h-[100dvh] min-h-0 min-w-0 flex-col overflow-hidden bg-white dark:bg-suno text-zinc-900 dark:text-white font-sans antialiased selection:bg-brand/30 transition-colors duration-300">
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <Sidebar
           currentView={currentView}
@@ -1392,19 +1569,17 @@ function AppContent() {
               window.history.pushState({}, '', '/');
             } else if (v === 'library') {
               window.history.pushState({}, '', '/library');
-            } else if (v === 'search') {
-              window.history.pushState({}, '', '/search');
-            } else if (v === 'news') {
-              window.history.pushState({}, '', '/news');
             } else if (v === 'tools') {
               window.history.pushState({}, '', '/tools');
+            } else if (v === 'settings') {
+              window.history.pushState({}, '', '/settings');
             }
             if (isMobile) setShowLeftSidebar(false);
           }}
           theme={theme}
           onToggleTheme={toggleTheme}
           user={user}
-          onOpenSettings={() => setShowSettingsModal(true)}
+          onOpenSettings={() => { setSettingsSection('account'); setShowSettingsModal(true); }}
           isOpen={showLeftSidebar}
           onToggle={() => setShowLeftSidebar(!showLeftSidebar)}
         />
@@ -1461,6 +1636,7 @@ function AppContent() {
         isVisible={toast.isVisible}
         onClose={closeToast}
         duration={toast.type === 'error' ? 8000 : 3000}
+        progressItems={progressToasts}
       />
       {/* Cover regen modal — only mounted while a song is selected for regen.
           Unmounting on close revokes blob URLs (see CoverRegenModal cleanup
@@ -1486,6 +1662,7 @@ function AppContent() {
       )}
       <SettingsModal
         isOpen={showSettingsModal}
+        variant="account"
         initialSection={settingsSection}
         onClose={() => { setShowSettingsModal(false); setSettingsSection(null); }}
         theme={theme}

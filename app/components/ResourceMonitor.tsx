@@ -180,7 +180,7 @@ export const ResourceMonitor: React.FC<{ isOpen?: boolean }> = ({ isOpen = true 
               {gpu ? gpu.name.replace(/NVIDIA GeForce /i, '') : 'Resources'}
             </span>
             {typeof gpu?.temperature_c === 'number' && <span className="text-[10px] tabular-nums text-zinc-500">{gpu.temperature_c}°</span>}
-            <button type="button" onClick={() => setFloating(false)} title={t('dockMonitor')} className="text-zinc-400 hover:text-pink-500">
+            <button type="button" onClick={() => setFloating(false)} title={t('dockMonitor')} className="text-zinc-400 hover:text-emerald-500">
               <Minimize2 size={13} />
             </button>
           </div>
@@ -211,7 +211,7 @@ export const ResourceMonitor: React.FC<{ isOpen?: boolean }> = ({ isOpen = true 
         <span className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           {gpu ? gpu.name.replace(/NVIDIA GeForce /i, '') : 'Resources'}
         </span>
-        <button type="button" onClick={() => setFloating(true)} title={t('popOutMonitor')} className="text-zinc-400 hover:text-pink-500">
+        <button type="button" onClick={() => setFloating(true)} title={t('popOutMonitor')} className="text-zinc-400 hover:text-emerald-500">
           <PictureInPicture2 size={12} />
         </button>
       </div>

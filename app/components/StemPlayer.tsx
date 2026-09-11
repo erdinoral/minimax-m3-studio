@@ -73,7 +73,7 @@ export const StemPlayer: React.FC<{ src: string; label: string }> = ({ src, labe
       <button
         type="button"
         onClick={toggle}
-        className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-r from-orange-500 to-pink-600 text-white"
+        className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-r from-emerald-500 to-green-600 text-white"
         aria-label={label}
       >
         {playing ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
@@ -103,7 +103,7 @@ export const StemPlayer: React.FC<{ src: string; label: string }> = ({ src, labe
         className="group h-6 min-w-0 flex-1 cursor-pointer py-2.5"
       >
         <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-white/10">
-          <div className="h-full rounded-full bg-gradient-to-r from-orange-500 to-pink-500" style={{ width: `${progress}%` }} />
+          <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-500" style={{ width: `${progress}%` }} />
         </div>
       </div>
       <span className="w-11 shrink-0 text-[11px] tabular-nums text-zinc-500">{clock(length)}</span>

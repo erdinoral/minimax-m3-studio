@@ -16,7 +16,7 @@ import { loadNativeOpenRouterCatalog, refreshNativeOpenRouterCatalog, type Nativ
  */
 
 const INPUT =
-  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-pink-400 dark:border-white/10 dark:bg-black/20 dark:text-white';
+  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-black/20 dark:text-white';
 
 export const KaraokeExtras: React.FC<{ engine: string }> = ({ engine }) => {
   const { t } = useI18n();
@@ -92,8 +92,8 @@ export const KaraokeExtras: React.FC<{ engine: string }> = ({ engine }) => {
 
   return (
     <div className="space-y-2">
-      <label className="flex w-fit cursor-pointer items-center gap-2 rounded-lg px-1 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:text-pink-600 dark:text-zinc-200 dark:hover:text-pink-400">
-        <input type="checkbox" checked={enabled} onChange={(event) => void toggle(event.target.checked)} className="h-4 w-4 accent-pink-500" />
+      <label className="flex w-fit cursor-pointer items-center gap-2 rounded-lg px-1 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:text-emerald-600 dark:text-zinc-200 dark:hover:text-emerald-400">
+        <input type="checkbox" checked={enabled} onChange={(event) => void toggle(event.target.checked)} className="h-4 w-4 accent-emerald-500" />
         {t('karaokeEnable')}
       </label>
 
@@ -111,7 +111,7 @@ export const KaraokeExtras: React.FC<{ engine: string }> = ({ engine }) => {
               type="button"
               onClick={() => void loadCatalog()}
               disabled={busy !== null}
-              className="shrink-0 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-pink-400 hover:text-pink-600 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300"
+              className="shrink-0 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300"
             >
               {busy === 'catalog' ? <Loader2 size={16} className="animate-spin" /> : t('refresh')}
             </button>
@@ -119,7 +119,7 @@ export const KaraokeExtras: React.FC<{ engine: string }> = ({ engine }) => {
               type="button"
               onClick={() => void save()}
               disabled={busy !== null}
-              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:border-pink-400 hover:text-pink-600 disabled:opacity-50 dark:border-white/15 dark:text-zinc-200"
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-50 dark:border-white/15 dark:text-zinc-200"
             >
               {busy === 'save' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
               {t('save')}

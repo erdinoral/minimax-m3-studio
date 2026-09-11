@@ -23,7 +23,7 @@ interface RuntimeStatus {
 }
 
 const INPUT =
-  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-pink-400 dark:border-white/10 dark:bg-black/20 dark:text-white';
+  'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-black/20 dark:text-white';
 
 export const AssistantExtras: React.FC<{ engine: string }> = ({ engine }) => {
   const { t } = useI18n();
@@ -211,7 +211,7 @@ export const AssistantExtras: React.FC<{ engine: string }> = ({ engine }) => {
               onClick={() => void fetchLocalModels(localBaseUrl)}
               disabled={localBusy || !localBaseUrl.trim()}
               title={t('refresh')}
-              className="shrink-0 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-pink-400 hover:text-pink-600 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300"
+              className="shrink-0 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300"
             >
               {localBusy ? <Loader2 size={16} className="animate-spin" /> : t('refresh')}
             </button>
@@ -234,7 +234,7 @@ export const AssistantExtras: React.FC<{ engine: string }> = ({ engine }) => {
               type="button"
               onClick={() => void loadCatalog()}
               disabled={busy !== null}
-              className="shrink-0 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-pink-400 hover:text-pink-600 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300"
+              className="shrink-0 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300"
             >
               {busy === 'catalog' ? <Loader2 size={16} className="animate-spin" /> : t('refresh')}
             </button>
@@ -251,7 +251,7 @@ export const AssistantExtras: React.FC<{ engine: string }> = ({ engine }) => {
             type="button"
             onClick={() => void save()}
             disabled={busy !== null}
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:border-pink-400 hover:text-pink-600 disabled:opacity-50 dark:border-white/15 dark:text-zinc-200"
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-50 dark:border-white/15 dark:text-zinc-200"
           >
             {busy === 'save' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
             {t('save')}
@@ -261,7 +261,7 @@ export const AssistantExtras: React.FC<{ engine: string }> = ({ engine }) => {
           <button
             type="button"
             onClick={() => void stopSidecar()}
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:border-pink-400 hover:text-pink-600 dark:border-white/10 dark:text-zinc-300"
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:border-emerald-400 hover:text-emerald-600 dark:border-white/10 dark:text-zinc-300"
           >
             <Square size={13} /> {t('assistantUnload')}
           </button>
