@@ -9,7 +9,13 @@ module.exports = {
     {
       method: 'fs.rm',
       params: {
-        path: 'target'
+        path: 'app/dist'
+      }
+    },
+    {
+      method: 'fs.rm',
+      params: {
+        path: 'runtime'
       }
     },
     {

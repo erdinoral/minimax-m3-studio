@@ -3,14 +3,8 @@ module.exports = {
   title: 'MiniMax M3 Studio',
   description: 'Local MiniMax Music3 studio fork — generate full tracks on your NVIDIA GPU. Windows x64. https://github.com/erdinoral/minimax-m3-studio',
   icon: 'icon.png',
-  pre: [{
-    icon: 'https://www.rust-lang.org/static/images/rust-logo-blk.svg',
-    title: 'Rust (cargo)',
-    description: 'Needed once to build the local music-server. Install rustup, then re-open Install.',
-    href: 'https://rustup.rs/'
-  }],
   menu: async (kernel, info) => {
-    const installed = info.exists('app/node_modules') && info.exists('target/release/music-server.exe')
+    const installed = info.exists('app/node_modules') && info.exists('runtime/music-server.exe')
     const running = {
       install: info.running('install.js'),
       start: info.running('start.js'),

@@ -1,10 +1,9 @@
-# Extract mm-server (+ CUDA/ggml DLLs) from the upstream portable zip into
-# target/release/resources/minimaxmusic-cpp next to music-server.exe.
+# Stage mm-server (+ CUDA/ggml DLLs) beside the Pinokio runtime music-server.exe.
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $Zip = Join-Path $RepoRoot 'cache\MiniMax-Music3-Studio-portable.zip'
-$Dest = Join-Path $RepoRoot 'target\release\resources\minimaxmusic-cpp'
+$Dest = Join-Path $RepoRoot 'runtime\resources\minimaxmusic-cpp'
 $Marker = Join-Path $Dest 'mm-server.exe'
 
 if (Test-Path $Marker) {
