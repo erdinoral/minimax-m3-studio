@@ -15,8 +15,9 @@ module.exports = {
     {
       method: 'shell.run',
       params: {
-        path: 'app',
-        message: 'npm run preview -- --host 127.0.0.1 --port 3000',
+        path: 'runtime',
+        // Pinokio ships Node; no npm install needed.
+        message: 'node serve.js',
         on: [{
           event: '/(http:\\/\\/[0-9.:]+)/',
           done: true

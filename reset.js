@@ -3,18 +3,6 @@ module.exports = {
     {
       method: 'fs.rm',
       params: {
-        path: 'app/node_modules'
-      }
-    },
-    {
-      method: 'fs.rm',
-      params: {
-        path: 'app/dist'
-      }
-    },
-    {
-      method: 'fs.rm',
-      params: {
         path: 'runtime'
       }
     },

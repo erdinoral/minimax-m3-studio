@@ -1,10 +1,12 @@
 module.exports = {
   version: '8.0',
   title: 'MiniMax M3 Studio',
-  description: 'Local MiniMax Music3 studio fork — generate full tracks on your NVIDIA GPU. Windows x64. https://github.com/erdinoral/minimax-m3-studio',
+  description: 'Local MiniMax Music3 studio — one click on Windows + NVIDIA. https://github.com/erdinoral/minimax-m3-studio',
   icon: 'icon.png',
   menu: async (kernel, info) => {
-    const installed = info.exists('app/node_modules') && info.exists('runtime/music-server.exe')
+    const installed = info.exists('runtime/music-server.exe')
+      && info.exists('runtime/www/index.html')
+      && info.exists('runtime/resources/minimaxmusic-cpp/mm-server.exe')
     const running = {
       install: info.running('install.js'),
       start: info.running('start.js'),
@@ -39,7 +41,7 @@ module.exports = {
         return [{
           default: true,
           icon: 'fa-solid fa-terminal',
-          text: 'Terminal',
+          text: 'Starting...',
           href: 'start.js'
         }]
       }
@@ -72,16 +74,13 @@ module.exports = {
         text: 'Update',
         href: 'update.js'
       }, {
-        icon: 'fa-solid fa-plug',
-        text: 'Install',
-        href: 'install.js'
-      }, {
         icon: 'fa-regular fa-circle-xmark',
         text: 'Reset',
         href: 'reset.js'
       }]
     }
 
+    // First open: auto-run Install (downloads runtime, no npm for the user).
     return [{
       default: true,
       icon: 'fa-solid fa-plug',
