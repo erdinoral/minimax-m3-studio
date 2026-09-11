@@ -340,8 +340,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [excludeStyles, setExcludeStyles] = useState('');
   const [vocalGender, setVocalGender] = useState<'auto' | 'male' | 'female'>('auto');
   // Director (simple) is the primary path: one brief → full draft. Studio stays
-  // for hand-edited captions; Cover is local inspired rewrite from a reference.
-  const [mode, setMode] = useState<'simple' | 'studio' | 'cover'>('simple');
+  // for hand-edited captions; Instrumental is no-vocals only; Cover is rewrite.
+  const [mode, setMode] = useState<'simple' | 'studio' | 'cover' | 'instrumental'>('simple');
   const [assistInstruction, setAssistInstruction] = useState('');
   const [error, setError] = useState<string | null>(null);
   const promptFile = useRef<HTMLInputElement | null>(null);
@@ -442,10 +442,14 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     return () => window.removeEventListener('mm3:cover-from-song', onCover);
   }, []);
 
-  const setInstrumentalSafe = (value: boolean) => {
-    setInstrumental(value);
-    // Vocals creep back when leftover lyrics stay in the form.
-    if (value) setLyrics('');
+  const selectMode = (next: 'simple' | 'studio' | 'cover' | 'instrumental') => {
+    setMode(next);
+    if (next === 'instrumental') {
+      setInstrumental(true);
+      setLyrics('');
+      return;
+    }
+    if (mode === 'instrumental') setInstrumental(false);
   };
 
   const buildCoverInstruction = (transcript: string, extra: string) => {
@@ -992,32 +996,48 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     if (!ready) { setError(t('downloadProfileFirst')); return; }
     if (activeJobCount >= 10) return;
 
-    // Empty lyrics = instrumental (same contract as mm-server). The switch is
-    // the explicit UI; clearing the box should not block Create.
-    const treatAsInstrumental = instrumental || !lyrics.trim();
-    if (treatAsInstrumental && !instrumental) setInstrumental(true);
+    const treatAsInstrumental = mode === 'instrumental';
+    if (treatAsInstrumental) {
+      setInstrumental(true);
+      setLyrics('');
+    }
 
-    // Advanced: queue lyrics → caption → music as one pipeline slot.
-    if (mode === 'studio') {
-      if (!treatAsInstrumental && !stylesText.trim() && !lyrics.trim() && !caption.trim()) {
+    // Advanced + Instrumental: queue lyrics/caption assist → music.
+    if (mode === 'studio' || mode === 'instrumental') {
+      if (mode === 'studio' && !stylesText.trim() && !lyrics.trim() && !caption.trim()) {
         setError(t('advancedNeedsStyles'));
+        return;
+      }
+      if (mode === 'instrumental' && !stylesText.trim() && !caption.trim() && !assistInstruction.trim()) {
+        setError(t('instrumentalNeedsStyles'));
         return;
       }
       if (!stylesText.trim() && !caption.trim()) {
-        setError(t('advancedNeedsStyles'));
+        setError(mode === 'instrumental' ? t('instrumentalNeedsStyles') : t('advancedNeedsStyles'));
         return;
       }
-      if (!assistantReady) {
+      if (!assistantReady && mode === 'studio' && (!caption.trim() || lyricsLookLikeSeed(lyrics))) {
+        setError(t('assistantNeedsModel'));
+        return;
+      }
+      if (!assistantReady && mode === 'instrumental' && !caption.trim()) {
         setError(t('assistantNeedsModel'));
         return;
       }
 
-      const snap = { ...takeCreateSnapshot(), instrumental: treatAsInstrumental, lyrics: treatAsInstrumental ? '' : lyrics };
+      const snap = {
+        ...takeCreateSnapshot(),
+        instrumental: treatAsInstrumental || instrumental,
+        lyrics: treatAsInstrumental ? '' : lyrics,
+      };
       if (snap.stylesText.trim()) {
         recordStylesTextChips(snap.stylesText);
         setStyleChipOrder(orderedStyleChips());
       }
-      const preview = snap.name.trim() || snap.stylesText.trim().slice(0, 60) || snap.lyrics.trim().slice(0, 60) || (treatAsInstrumental ? t('instrumental') : '');
+      const preview = snap.name.trim()
+        || snap.stylesText.trim().slice(0, 60)
+        || snap.lyrics.trim().slice(0, 60)
+        || (treatAsInstrumental ? t('instrumental') : '');
       const tempId = createTempSongForClick?.(preview) ?? `temp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
       incrementPendingClicks?.(1);
       const ac = new AbortController();
@@ -1033,9 +1053,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
       const runPipeline = async () => {
         try {
-          // Do NOT wait for music jobs here — that left cards stuck on
-          // "waiting in queue" with no lyrics/caption work. Assist runs
-          // serially via enqueueCreatePipeline; mm-server queues audio.
           if (ac.signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
           let working = { ...snap };
@@ -1063,9 +1080,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             setLyrics(lyricsForRequest);
             updateTempSongForClick?.(tempId, { lyrics: lyricsForRequest, stage: 'stageWritingCaption' });
           } else if (!working.instrumental && !working.lyrics.trim()) {
-            // Should be unreachable after treatAsInstrumental; keep a soft path.
-            working = { ...working, instrumental: true };
-            lyricsForRequest = '';
+            failQueuedCreate(t('lyricsRequired'));
+            return;
           }
 
           let captionText = working.caption.trim();
@@ -1123,7 +1139,10 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             stage: 'stageWaitingInQueue',
           });
 
-          const request = buildRequest();
+          const request = buildRequest({
+            instrumental: working.instrumental,
+            lyrics: lyricsForRequest,
+          });
           request.caption = captionText;
           request.lyrics = lyricsForRequest;
           request.duration_seconds = Math.min(durationForRequest, MAX_DURATION_SECONDS);
@@ -1150,13 +1169,11 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     }
 
     if (assisting) return;
+    if (!lyrics.trim()) { setError(t('lyricsRequired')); return; }
     if (!caption.trim()) { setError(t('captionRequired')); return; }
     if (promptTokens > MAX_PROMPT_TOKENS) { setError(t('promptTooLong')); return; }
     setError(null);
-    onGenerate(buildRequest({
-      instrumental: treatAsInstrumental,
-      lyrics: treatAsInstrumental ? '' : lyrics,
-    }));
+    onGenerate(buildRequest({ instrumental: false, lyrics }));
   };
 
   const totalTracks = numberOrUndefined(synthBatch) ?? 1;
@@ -1207,19 +1224,21 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             {([
               { id: 'simple' as const, label: t('simpleMode') },
               { id: 'studio' as const, label: t('studioMode') },
+              { id: 'instrumental' as const, label: t('instrumentalMode') },
               { id: 'cover' as const, label: t('coverMode') },
             ]).map(tab => (
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setMode(tab.id)}
-                className={`flex-1 rounded-md py-1.5 text-xs font-semibold transition-all ${mode === tab.id ? 'bg-brand text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
+                onClick={() => selectMode(tab.id)}
+                className={`flex-1 rounded-md px-1 py-1.5 text-[11px] font-semibold transition-all sm:text-xs ${mode === tab.id ? 'bg-brand text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
               >
                 {tab.label}
               </button>
             ))}
           </div>
 
+          {mode !== 'instrumental' && (
           <div className="flex items-center gap-2">
             <label className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{t('songLanguage')}</label>
             <select
@@ -1237,6 +1256,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               <option value="ko">한국어</option>
             </select>
           </div>
+          )}
 
           {mode === 'simple' && !assistantReady && (
             <Card title={t('songIdea')}>
@@ -1282,6 +1302,49 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 >
                   <Square size={13} />
                   {t('cancelDownload')}
+                </button>
+              )}
+            </Card>
+          )}
+
+          {mode === 'instrumental' && (
+            <Card title={t('instrumentalMode')}>
+              <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">{t('instrumentalModeHint')}</p>
+              {assistantReady ? (
+                <>
+                  <AutoTextarea
+                    value={assistInstruction}
+                    minRows={3}
+                    onChange={event => setAssistInstruction(event.target.value)}
+                    placeholder={t('instrumentalIdeaPlaceholder')}
+                    className={`${CONTROL} mt-3 resize-none`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInstrumental(true);
+                      setLyrics('');
+                      void askAssistant('prompt', [
+                        assistInstruction.trim() || 'Instrumental track from the Styles below.',
+                        'This piece is fully instrumental: no sung words, no humming, no choir, no vocal chops.',
+                        'Write Global metadata, Vocal details (state instrumental + lead instrument), and Arrangement.',
+                      ].join('\n'), { clearCaption: true, clearLyrics: true });
+                    }}
+                    disabled={assisting !== null || (!assistInstruction.trim() && !stylesText.trim())}
+                    className={`mt-3 ${CTA}`}
+                  >
+                    {assisting === 'prompt' ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+                    {assisting === 'prompt' ? `${t('assistantWriting')} · ${assistSeconds} ${t('secondsShort')}` : t('writeCaption')}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new CustomEvent('mm3:open-settings', { detail: 'models' }))}
+                  className="mt-3 inline-flex items-center gap-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:border-brand hover:text-brand dark:border-white/15 dark:text-zinc-300"
+                >
+                  <Settings2 size={13} />
+                  {t('setUpAssistant')}
                 </button>
               )}
             </Card>
@@ -1415,6 +1478,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             />
           </div>
 
+          {mode !== 'instrumental' && (
           <Card
             title={t('lyrics')}
             actions={
@@ -1443,23 +1507,16 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             <AutoTextarea
               value={lyrics}
               minRows={10}
-              onChange={event => {
-                setLyrics(event.target.value);
-                // Typing lyrics again means this is a vocal track.
-                if (event.target.value.trim()) setInstrumental(false);
-              }}
-              disabled={instrumental}
-              placeholder={instrumental ? t('instrumentalLyricsPlaceholder') : (mode === 'studio' ? t('lyricsKeywordsPlaceholder') : '[intro]\n\n[verse]\n…\n\n[chorus]\n…')}
-              className={`${CONTROL} resize-none font-mono text-xs leading-5 disabled:opacity-50`}
+              onChange={event => setLyrics(event.target.value)}
+              placeholder={mode === 'studio' ? t('lyricsKeywordsPlaceholder') : '[intro]\n\n[verse]\n…\n\n[chorus]\n…'}
+              className={`${CONTROL} resize-none font-mono text-xs leading-5`}
             />
-            <div className="mt-3">
-              <Switch checked={instrumental} onChange={setInstrumentalSafe} label={t('instrumental')} hint={t('instrumentalHint')} />
-            </div>
             <p className="mt-2 text-[11px] leading-4 text-zinc-500">{mode === 'studio' ? t('lyricsHintAdvanced') : t('lyricsHint')}</p>
             {overBudget && <p className="mt-1 text-[11px] leading-4 text-rose-600 dark:text-rose-300">{t('promptTooLong')}</p>}
           </Card>
+          )}
 
-          {mode === 'studio' && (
+          {(mode === 'studio' || mode === 'instrumental') && (
             <Card
               title={t('stylesSection')}
               actions={
@@ -1609,6 +1666,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     className={CONTROL}
                   />
                 </Field>
+                {mode !== 'instrumental' && (
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-[11px] font-bold uppercase tracking-wide text-zinc-500">{t('vocalGender')}</span>
                   <div className="flex rounded-lg border border-zinc-300 p-0.5 dark:border-white/10">
@@ -1635,6 +1693,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     ))}
                   </div>
                 </div>
+                )}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-[11px] font-bold uppercase tracking-wide text-zinc-500">{t('maxDuration')}</span>
