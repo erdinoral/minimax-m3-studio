@@ -1387,6 +1387,7 @@ export const en = {
     assistantOptionalPurpose: 'Writes the description and lyrics from an idea',
     karaokeOptionalPurpose: 'Times the lyrics for the player and the video studio',
     instrumentalHint: 'No vocals at all: lyrics are cleared and ignored so the engine stays instrumental.',
+    instrumentalLyricsPlaceholder: 'Instrumental on — lyrics are not used. Add a caption or styles, then Create.',
     turkishLanguage: 'Türkçe',
     stageLm: 'Stage 1 · language model',
     stageLmHint: 'Writes the song as audio codes. CFG holds it to the description, top-k widens or narrows its choices, and the seed makes the same take repeatable.',

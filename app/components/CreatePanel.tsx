@@ -517,15 +517,17 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     setError(null);
   };
 
-  const buildRequest = () => {
+  const buildRequest = (overrides?: { instrumental?: boolean; lyrics?: string }) => {
     let captionText = appendStylesToCaption(caption, stylesText);
     if (excludeStyles.trim()) captionText = `${captionText}\nExclude: ${excludeStyles.trim()}`.trim();
+    const asInstrumental = overrides?.instrumental ?? instrumental;
+    const lyricSource = overrides?.lyrics ?? lyrics;
     const request: Music3Request & { title?: string; cover_prompt?: string; audio_codes?: string; models?: Record<string, string> } = {
       caption: captionText,
       // An instrumental has no words, whatever is still sitting in the box. The
       // lyrics of the previous track stayed there, went to the engine and came
       // back sung: the switch said instrumental and the track had vocals.
-      lyrics: instrumental ? '' : lyrics.replace(/\r\n?/g, '\n').trim(),
+      lyrics: asInstrumental ? '' : lyricSource.replace(/\r\n?/g, '\n').trim(),
       duration_seconds: Math.min(numberOrUndefined(duration) ?? 60, MAX_DURATION_SECONDS),
       steps: numberOrUndefined(steps) ?? 30,
       seed: randomizeSeed ? undefined : numberOrUndefined(seed),
@@ -990,9 +992,14 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     if (!ready) { setError(t('downloadProfileFirst')); return; }
     if (activeJobCount >= 10) return;
 
+    // Empty lyrics = instrumental (same contract as mm-server). The switch is
+    // the explicit UI; clearing the box should not block Create.
+    const treatAsInstrumental = instrumental || !lyrics.trim();
+    if (treatAsInstrumental && !instrumental) setInstrumental(true);
+
     // Advanced: queue lyrics → caption → music as one pipeline slot.
     if (mode === 'studio') {
-      if (!instrumental && !stylesText.trim() && !lyrics.trim() && !caption.trim()) {
+      if (!treatAsInstrumental && !stylesText.trim() && !lyrics.trim() && !caption.trim()) {
         setError(t('advancedNeedsStyles'));
         return;
       }
@@ -1005,12 +1012,12 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
         return;
       }
 
-      const snap = takeCreateSnapshot();
+      const snap = { ...takeCreateSnapshot(), instrumental: treatAsInstrumental, lyrics: treatAsInstrumental ? '' : lyrics };
       if (snap.stylesText.trim()) {
         recordStylesTextChips(snap.stylesText);
         setStyleChipOrder(orderedStyleChips());
       }
-      const preview = snap.name.trim() || snap.stylesText.trim().slice(0, 60) || snap.lyrics.trim().slice(0, 60);
+      const preview = snap.name.trim() || snap.stylesText.trim().slice(0, 60) || snap.lyrics.trim().slice(0, 60) || (treatAsInstrumental ? t('instrumental') : '');
       const tempId = createTempSongForClick?.(preview) ?? `temp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
       incrementPendingClicks?.(1);
       const ac = new AbortController();
@@ -1056,8 +1063,9 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             setLyrics(lyricsForRequest);
             updateTempSongForClick?.(tempId, { lyrics: lyricsForRequest, stage: 'stageWritingCaption' });
           } else if (!working.instrumental && !working.lyrics.trim()) {
-            failQueuedCreate(t('lyricsRequired'));
-            return;
+            // Should be unreachable after treatAsInstrumental; keep a soft path.
+            working = { ...working, instrumental: true };
+            lyricsForRequest = '';
           }
 
           let captionText = working.caption.trim();
@@ -1142,11 +1150,13 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     }
 
     if (assisting) return;
-    if (!instrumental && !lyrics.trim()) { setError(t('lyricsRequired')); return; }
     if (!caption.trim()) { setError(t('captionRequired')); return; }
     if (promptTokens > MAX_PROMPT_TOKENS) { setError(t('promptTooLong')); return; }
     setError(null);
-    onGenerate(buildRequest());
+    onGenerate(buildRequest({
+      instrumental: treatAsInstrumental,
+      lyrics: treatAsInstrumental ? '' : lyrics,
+    }));
   };
 
   const totalTracks = numberOrUndefined(synthBatch) ?? 1;
@@ -1433,10 +1443,18 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             <AutoTextarea
               value={lyrics}
               minRows={10}
-              onChange={event => setLyrics(event.target.value)}
-              placeholder={mode === 'studio' ? t('lyricsKeywordsPlaceholder') : '[intro]\n\n[verse]\n…\n\n[chorus]\n…'}
-              className={`${CONTROL} resize-none font-mono text-xs leading-5`}
+              onChange={event => {
+                setLyrics(event.target.value);
+                // Typing lyrics again means this is a vocal track.
+                if (event.target.value.trim()) setInstrumental(false);
+              }}
+              disabled={instrumental}
+              placeholder={instrumental ? t('instrumentalLyricsPlaceholder') : (mode === 'studio' ? t('lyricsKeywordsPlaceholder') : '[intro]\n\n[verse]\n…\n\n[chorus]\n…')}
+              className={`${CONTROL} resize-none font-mono text-xs leading-5 disabled:opacity-50`}
             />
+            <div className="mt-3">
+              <Switch checked={instrumental} onChange={setInstrumentalSafe} label={t('instrumental')} hint={t('instrumentalHint')} />
+            </div>
             <p className="mt-2 text-[11px] leading-4 text-zinc-500">{mode === 'studio' ? t('lyricsHintAdvanced') : t('lyricsHint')}</p>
             {overBudget && <p className="mt-1 text-[11px] leading-4 text-rose-600 dark:text-rose-300">{t('promptTooLong')}</p>}
           </Card>
@@ -1583,7 +1601,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             </button>
             {showAdvanced && (
               <div className="space-y-4 border-t border-zinc-100 p-3 dark:border-white/5">
-                <Switch checked={instrumental} onChange={setInstrumentalSafe} label={t('instrumental')} hint={t('instrumentalHint')} />
                 <Field label={t('excludeStyles')}>
                   <input
                     value={excludeStyles}

@@ -1358,6 +1358,7 @@ export const ja = {
     assistantOptionalPurpose: 'アイデアから説明と歌詞を書きます',
     karaokeOptionalPurpose: 'プレイヤーとビデオ用に歌詞のタイミングを付けます',
     instrumentalHint: 'ボーカルなし: 歌詞は使われません。',
+    instrumentalLyricsPlaceholder: 'Instrumental — lyrics unused. Add caption/styles, then Create.',
     coverMode: 'Cover',
     coverModeHint: 'Upload a reference track, transcribe it, then rewrite into an original inspired song. Album artwork cover is separate.',
     coverUploadAudio: 'Upload reference audio',

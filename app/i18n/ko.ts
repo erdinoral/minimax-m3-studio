@@ -1358,6 +1358,7 @@ export const ko = {
     assistantOptionalPurpose: '아이디어로 설명과 가사를 씁니다',
     karaokeOptionalPurpose: '플레이어와 비디오용으로 가사 타이밍을 만듭니다',
     instrumentalHint: '보컬 없음: 가사는 사용되지 않습니다.',
+    instrumentalLyricsPlaceholder: 'Instrumental — lyrics unused. Add caption/styles, then Create.',
     coverMode: 'Cover',
     coverModeHint: 'Upload a reference track, transcribe it, then rewrite into an original inspired song. Album artwork cover is separate.',
     coverUploadAudio: 'Upload reference audio',

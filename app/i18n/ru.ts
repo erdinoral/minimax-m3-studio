@@ -1364,6 +1364,7 @@ export const ru = {
     assistantOptionalPurpose: 'Пишет описание и текст по идее',
     karaokeOptionalPurpose: 'Расставляет тайминги текста для плеера и видео',
     instrumentalHint: 'Без вокала: текст не используется.',
+    instrumentalLyricsPlaceholder: 'Instrumental — lyrics unused. Add caption/styles, then Create.',
     coverMode: 'Cover',
     coverModeHint: 'Upload a reference track, transcribe it, then rewrite into an original inspired song. Album artwork cover is separate.',
     coverUploadAudio: 'Upload reference audio',

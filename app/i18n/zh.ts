@@ -1358,6 +1358,7 @@ export const zh = {
     assistantOptionalPurpose: '根据创意撰写描述与歌词',
     karaokeOptionalPurpose: '为播放器与视频生成歌词时间轴',
     instrumentalHint: '纯音乐：忽略歌词。',
+    instrumentalLyricsPlaceholder: 'Instrumental — lyrics unused. Add caption/styles, then Create.',
     coverMode: 'Cover',
     coverModeHint: 'Upload a reference track, transcribe it, then rewrite into an original inspired song. Album artwork cover is separate.',
     coverUploadAudio: 'Upload reference audio',

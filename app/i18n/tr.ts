@@ -1387,6 +1387,7 @@ export const tr = {
     assistantOptionalPurpose: 'Writes the description and lyrics from an idea',
     karaokeOptionalPurpose: 'Times the lyrics for the player and the video studio',
     instrumentalHint: 'Açıksa söz gönderilmez; motor enstrümantal üretir.',
+    instrumentalLyricsPlaceholder: 'Enstrümantal açık — söz kullanılmaz. Caption veya stil yazıp Oluştur.',
     turkishLanguage: 'Türkçe',
     stageLm: 'LM (dil modeli)',
     stageLmHint: 'Otokodlar / yapı için LM örnekleme.',
