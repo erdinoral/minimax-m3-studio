@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 /**
  * Zero-dependency static UI + API proxy for Pinokio.
- * Serves runtime/www and forwards /v1 /setup /engine /health to music-server.
+ * Serves app/dist (repo layout) and proxies API routes to music-server.
  */
 const http = require('http')
 const fs = require('fs')
 const path = require('path')
 
-const ROOT = __dirname
-const WWW = path.join(ROOT, 'www')
+const ROOT = path.resolve(__dirname, '..')
+const WWW = process.env.PINOKIO_WWW
+  ? path.resolve(process.cwd(), process.env.PINOKIO_WWW)
+  : (fs.existsSync(path.join(ROOT, 'app', 'dist', 'index.html'))
+      ? path.join(ROOT, 'app', 'dist')
+      : path.join(ROOT, 'runtime', 'www'))
 const HOST = '127.0.0.1'
 const PORT = Number(process.env.PINOKIO_UI_PORT || 3000)
 const API_HOST = '127.0.0.1'
@@ -98,12 +102,11 @@ const server = http.createServer((req, res) => {
     }
     fs.stat(filePath, (err2) => {
       if (err2) {
-        // SPA fallback
         const index = path.join(WWW, 'index.html')
         fs.stat(index, (err3) => {
           if (err3) {
             res.writeHead(404)
-            res.end('UI not found')
+            res.end('UI not found — run Install / Update (npm build).')
             return
           }
           sendFile(res, index)
@@ -116,6 +119,5 @@ const server = http.createServer((req, res) => {
 })
 
 server.listen(PORT, HOST, () => {
-  // Pinokio start.js captures this URL.
   console.log(`http://${HOST}:${PORT}`)
 })

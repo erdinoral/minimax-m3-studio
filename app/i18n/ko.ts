@@ -604,7 +604,6 @@ export const ko = {
     created: '생성일',
     styleTags: '스타일 및 태그',
     lyricsSection: '가사',
-    copyLyrics: '복사',
 
     // Languages
     japanese: '일본어',

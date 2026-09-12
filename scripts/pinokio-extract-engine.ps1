@@ -1,13 +1,22 @@
-# Stage mm-server (+ CUDA/ggml DLLs) beside the Pinokio runtime music-server.exe.
+# Stage mm-server engine under resources/ (repo-root, H3-style durable asset).
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $Zip = Join-Path $RepoRoot 'cache\MiniMax-Music3-Studio-portable.zip'
-$Dest = Join-Path $RepoRoot 'runtime\resources\minimaxmusic-cpp'
+$Dest = Join-Path $RepoRoot 'resources\minimaxmusic-cpp'
 $Marker = Join-Path $Dest 'mm-server.exe'
+$Legacy = Join-Path $RepoRoot 'runtime\resources\minimaxmusic-cpp\mm-server.exe'
 
 if (Test-Path $Marker) {
   Write-Host "Engine already present: $Dest"
+  exit 0
+}
+
+# Old Pinokio zip layout → keep engine without re-download.
+if (Test-Path $Legacy) {
+  New-Item -ItemType Directory -Force -Path $Dest | Out-Null
+  Copy-Item -Path (Join-Path $RepoRoot 'runtime\resources\minimaxmusic-cpp\*') -Destination $Dest -Recurse -Force
+  Write-Host "Migrated engine from runtime/resources -> $Dest"
   exit 0
 }
 

@@ -4,6 +4,7 @@ venv/
 .venv/
 cache/
 runtime/
+resources/
 dist/
 # ...except the waveform editor's own bundle, which is shipped, not built.
 !app/public/editor/dist/

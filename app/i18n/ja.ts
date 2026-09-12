@@ -604,7 +604,6 @@ export const ja = {
   created: '作成日',
   styleTags: 'スタイルとタグ',
   lyricsSection: '歌詞',
-  copyLyrics: 'コピー',
 
   // Languages
   japanese: '日本語',

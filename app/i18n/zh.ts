@@ -604,7 +604,6 @@ export const zh = {
     created: '创建于',
     styleTags: '风格与标签',
     lyricsSection: '歌词',
-    copyLyrics: '复制',
 
     // Languages
     japanese: '日语',

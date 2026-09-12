@@ -1,13 +1,14 @@
 module.exports = {
   version: '8.0',
   title: 'MiniMax M3 Studio',
-  description: '1-click MiniMax Music3 on your NVIDIA GPU. Start auto-pulls GitHub app updates. https://github.com/erdinoral/minimax-m3-studio',
+  description: '1-click MiniMax Music3 from GitHub (H3-style): Install → Start → Update = git pull. https://github.com/erdinoral/minimax-m3-studio',
   icon: 'icon.png',
   menu: async (kernel, info) => {
-    // Same Pinokio pattern as MiniMax H3 Studio: Install (default) → Start (default) → Open Studio.
-    const installed = info.exists('runtime/music-server.exe')
-      && info.exists('runtime/www/index.html')
-      && info.exists('runtime/resources/minimaxmusic-cpp/mm-server.exe')
+    // Built from this repo — same Pinokio flow as MiniMax H3 Studio.
+    const installed = info.exists('target/release/music-server.exe')
+      && info.exists('app/dist/index.html')
+      && (info.exists('resources/minimaxmusic-cpp/mm-server.exe')
+        || info.exists('runtime/resources/minimaxmusic-cpp/mm-server.exe'))
     const running = {
       install: info.running('install.js'),
       start: info.running('start.js'),
@@ -82,7 +83,7 @@ module.exports = {
         icon: 'fa-regular fa-circle-xmark',
         text: 'Reset',
         href: 'reset.js',
-        confirm: 'Reset deletes the downloaded runtime. You can Install again after.'
+        confirm: 'Reset deletes build outputs and cache. Engine under resources/ is kept. Run Install again after.'
       }]
     }
 

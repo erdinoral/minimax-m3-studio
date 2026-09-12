@@ -610,7 +610,6 @@ export const ru = {
     created: 'Создано',
     styleTags: 'СТИЛЬ И ТЕГИ',
     lyricsSection: 'ТЕКСТ',
-    copyLyrics: 'Копировать',
 
     // Languages
     japanese: 'Японский',
