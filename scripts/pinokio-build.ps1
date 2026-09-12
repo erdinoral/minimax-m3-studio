@@ -1,5 +1,6 @@
 # Build M3 Studio from this repo (H3-style): UI + music-server.
-# No release zip — Update is git pull + this script.
+# No release zip - Update is git pull + this script.
+# ASCII-only: Windows PowerShell 5.1 on non-English locales misreads UTF-8 dashes as quotes.
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $RepoRoot
@@ -40,8 +41,8 @@ if ($LASTEXITCODE -ne 0) { throw 'music-server build failed' }
 
 $server = Join-Path $RepoRoot 'target\release\music-server.exe'
 $ui = Join-Path $RepoRoot 'app\dist\index.html'
-if (-not (Test-Path $server)) { throw "missing $server" }
-if (-not (Test-Path $ui)) { throw "missing $ui" }
+if (-not (Test-Path $server)) { throw ("missing " + $server) }
+if (-not (Test-Path $ui)) { throw ("missing " + $ui) }
 
-Write-Host "Build OK: $server"
-Write-Host "UI OK: $ui"
+Write-Host ("Build OK: " + $server)
+Write-Host ("UI OK: " + $ui)

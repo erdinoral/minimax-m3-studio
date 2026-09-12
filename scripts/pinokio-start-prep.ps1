@@ -1,5 +1,6 @@
 # Called on every Start: pull GitHub, rebuild only when the commit changed
 # (or when build outputs are missing). Offline / dirty tree still starts local build.
+# ASCII-only: Windows PowerShell 5.1 on non-English locales misreads UTF-8 dashes as quotes.
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $RepoRoot
@@ -15,19 +16,19 @@ Write-Host 'Checking GitHub for updates...'
 try {
   git pull --ff-only 2>&1 | ForEach-Object { Write-Host $_ }
 } catch {
-  Write-Host "git pull skipped: $($_.Exception.Message)"
+  Write-Host ("git pull skipped: " + $_.Exception.Message)
 }
 
 $after = $null
 try { $after = (git rev-parse HEAD).Trim() } catch { }
 
 if ($before -and $after -and ($before -ne $after)) {
-  Write-Host "Repo updated $before -> $after — rebuilding..."
+  Write-Host ("Repo updated " + $before + " -> " + $after + " - rebuilding...")
   $needBuild = $true
 } elseif ($needBuild) {
-  Write-Host 'Build outputs missing — building...'
+  Write-Host 'Build outputs missing - building...'
 } else {
-  Write-Host "Already up to date ($after)."
+  Write-Host ("Already up to date (" + $after + ").")
 }
 
 if ($needBuild) {
@@ -35,5 +36,5 @@ if ($needBuild) {
   if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 }
 
-# Engine once; no-op if already staged / migrated from old runtime/.
+# Engine once; no-op if already staged or migrated from old runtime/.
 & (Join-Path $PSScriptRoot 'pinokio-extract-engine.ps1')
