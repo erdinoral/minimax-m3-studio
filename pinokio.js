@@ -1,7 +1,7 @@
 module.exports = {
   version: '8.0',
   title: 'MiniMax M3 Studio',
-  description: '1-click MiniMax Music3 on your NVIDIA GPU. Write, generate, library — no npm/Rust for users. https://github.com/erdinoral/minimax-m3-studio',
+  description: '1-click MiniMax Music3 on your NVIDIA GPU. Start auto-pulls GitHub app updates. https://github.com/erdinoral/minimax-m3-studio',
   icon: 'icon.png',
   menu: async (kernel, info) => {
     // Same Pinokio pattern as MiniMax H3 Studio: Install (default) → Start (default) → Open Studio.

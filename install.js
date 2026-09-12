@@ -1,6 +1,8 @@
 const fs = require('fs')
 const path = require('path')
 
+// Prebuilt UI + music-server. Rebuilt by GitHub Actions on every push to main
+// (workflow: pinokio-runtime.yml) and published to this release tag.
 const APP_ZIP = 'https://github.com/erdinoral/minimax-m3-studio/releases/download/pinokio-runtime-v2/pinokio-app.zip'
 const PORTABLE_URL = 'https://github.com/timoncool/MiniMax-Music3-Studio/releases/download/v1.5.1/MiniMax-Music3-Studio-1.5.1-portable.zip'
 
@@ -51,7 +53,7 @@ module.exports = async () => {
   if (run.length === 0) {
     run.push({
       method: 'notify',
-      params: { html: 'Already installed. Click <b>Start</b>.' }
+      params: { html: 'Already installed. Click <b>Start</b> — it will pull GitHub updates automatically.' }
     })
   } else {
     run.push({

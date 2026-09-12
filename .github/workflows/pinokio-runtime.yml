@@ -1,0 +1,71 @@
+name: Pinokio runtime
+
+# Keep the Pinokio one-click zip in sync with main.
+# Pinokio Start/Update downloads this release asset — not the raw source tree.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pack:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build UI
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build music-server
+        run: cargo build -p music-server --release
+
+      - name: Pack pinokio-app.zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha = (git rev-parse HEAD).Trim()
+          $stage = 'cache/pinokio-stage'
+          if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path "$stage/www" | Out-Null
+          Copy-Item 'target/release/music-server.exe' "$stage/music-server.exe" -Force
+          Copy-Item 'scripts/pinokio-serve.js' "$stage/serve.js" -Force
+          Copy-Item 'app/dist/*' "$stage/www" -Recurse -Force
+          Set-Content -Path "$stage/COMMIT" -Value $sha -NoNewline
+          New-Item -ItemType Directory -Force -Path cache | Out-Null
+          $zip = 'cache/pinokio-app.zip'
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "$stage/*" -DestinationPath $zip -Force
+          Set-Content -Path 'cache/pinokio-runtime.sha' -Value $sha -NoNewline
+          Get-Item $zip | Format-List FullName, Length
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = 'pinokio-runtime-v2'
+          $view = gh release view $tag 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title 'Pinokio runtime' --notes 'Auto-built UI + music-server for Pinokio Install/Update/Start. Rebuilt on every push to main.'
+          }
+          gh release upload $tag cache/pinokio-app.zip cache/pinokio-runtime.sha --clobber
+          Write-Host "Published Pinokio runtime for $(Get-Content cache/pinokio-runtime.sha -Raw)"
