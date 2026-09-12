@@ -1,7 +1,7 @@
 module.exports = {
   version: '8.0',
   title: 'MiniMax M3 Studio',
-  description: '1-click MiniMax Music3 from GitHub (H3-style): Install → Start → Update = git pull. https://github.com/erdinoral/minimax-m3-studio',
+  description: '1-click MiniMax Music3 from GitHub (H3-style). Start auto-pulls updates. https://github.com/erdinoral/minimax-m3-studio',
   icon: 'icon.png',
   menu: async (kernel, info) => {
     // Built from this repo — same Pinokio flow as MiniMax H3 Studio.
