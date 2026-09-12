@@ -70,6 +70,8 @@ struct AppState {
     separation_config: Arc<RwLock<separation::SeparationConfig>>,
     /// Draw a cover as soon as a track is finished.
     cover_auto: Arc<RwLock<bool>>,
+    /// Interface language chosen in Settings (en/tr/…). Survives restarts.
+    ui_language: Arc<RwLock<Option<String>>>,
     /// What is being done to finished tracks right now - covers, karaoke - so
     /// the interface can say it instead of leaving the user guessing.
     activity: Arc<RwLock<Vec<Activity>>>,
@@ -111,6 +113,10 @@ struct CreateMusicJobRequest {
     /// Never sent to mm-server — stamped into generation_settings only.
     #[serde(default)]
     create_mode: Option<String>,
+    /// Styles chips / free text from the Create panel. Library-only; caption already
+    /// carries the merged form for the engine.
+    #[serde(default)]
+    styles_text: Option<String>,
 }
 
 /// The name this request goes into the library under: the user's, or one taken
@@ -279,6 +285,9 @@ struct PersistedStudioSettings {
     /// Whether a finished track gets its cover drawn without being asked.
     #[serde(default)]
     cover_auto: Option<bool>,
+    /// Interface language from Settings. Library/engine-agnostic preference.
+    #[serde(default)]
+    ui_language: Option<String>,
 }
 
 #[derive(Default)]
@@ -470,6 +479,13 @@ pub async fn serve() -> anyhow::Result<()> {
         cover_auto: Arc::new(RwLock::new(
             persisted.as_ref().and_then(|settings| settings.cover_auto).unwrap_or(false),
         )),
+        ui_language: Arc::new(RwLock::new(
+            persisted
+                .as_ref()
+                .and_then(|settings| settings.ui_language.clone())
+                .map(|lang| lang.trim().to_ascii_lowercase())
+                .filter(|lang| matches!(lang.as_str(), "en" | "zh" | "ja" | "ko" | "ru" | "tr")),
+        )),
         separation_config: Arc::new(RwLock::new(
             persisted.as_ref().and_then(|settings| settings.separation.clone()).unwrap_or_default(),
         )),
@@ -544,6 +560,7 @@ pub async fn serve() -> anyhow::Result<()> {
         .route("/v1/activity", get(read_activity))
         .route("/v1/cover-templates", get(read_cover_templates).put(write_cover_templates))
         .route("/v1/cover-templates/render", post(render_cover_template))
+        .route("/v1/ui-preferences", get(read_ui_preferences).put(write_ui_preferences))
         .route("/v1/openrouter/completions", post(create_openrouter_completion))
         .route("/v1/library/songs", get(library_songs).post(create_library_song))
         .route("/v1/library/import", post(import_library_audio))
@@ -1624,6 +1641,41 @@ async fn read_cover_templates(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
+#[derive(Debug, Deserialize)]
+struct UiPreferencesRequest {
+    #[serde(default)]
+    ui_language: Option<String>,
+}
+
+fn sanitize_ui_language(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+        .filter(|value| matches!(value.as_str(), "en" | "zh" | "ja" | "ko" | "ru" | "tr"))
+}
+
+async fn read_ui_preferences(State(state): State<AppState>) -> Json<Value> {
+    Json(serde_json::json!({
+        "ui_language": state.ui_language.read().await.clone(),
+    }))
+}
+
+async fn write_ui_preferences(
+    State(state): State<AppState>,
+    Json(request): Json<UiPreferencesRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
+    let language = sanitize_ui_language(request.ui_language.as_deref());
+    if request.ui_language.as_deref().is_some_and(|value| !value.trim().is_empty()) && language.is_none() {
+        return Err(api_error(StatusCode::BAD_REQUEST, "ui_language must be one of: en, zh, ja, ko, ru, tr".into()));
+    }
+    *state.ui_language.write().await = language.clone();
+    persist_studio_settings(&state)
+        .await
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(Json(serde_json::json!({ "ui_language": language })))
+}
+
 async fn write_cover_templates(
     State(state): State<AppState>,
     Json(request): Json<CoverTemplatesRequest>,
@@ -2352,6 +2404,7 @@ async fn persist_studio_settings(state: &AppState) -> anyhow::Result<()> {
         cover_template_default: state.cover_template_default.read().await.clone(),
         separation: Some(state.separation_config.read().await.clone()),
         cover_auto: Some(*state.cover_auto.read().await),
+        ui_language: state.ui_language.read().await.clone(),
     };
     if let Some(parent) = state.settings_path.parent() { fs::create_dir_all(parent)?; }
     let temporary = state.settings_path.with_extension("json.part");
@@ -3863,6 +3916,7 @@ async fn create_music_job(
     };
     let mut generation_settings = mm_request.clone();
     stamp_create_mode(&mut generation_settings, request.create_mode.as_deref());
+    stamp_styles_text(&mut generation_settings, request.styles_text.as_deref());
     match state.music_server.submit(mm_request).await {
         Ok(remote) => {
             let job = MusicJob {
@@ -3977,6 +4031,7 @@ async fn create_openrouter_music_job(state: AppState, request: CreateMusicJobReq
     };
     let mut generation_settings = stream_request.request.body.clone();
     stamp_create_mode(&mut generation_settings, request.create_mode.as_deref());
+    stamp_styles_text(&mut generation_settings, request.styles_text.as_deref());
     let job = MusicJob {
         id: format!("openrouter-{}", uuid_suffix()), engine_id: engine_id.clone(), cover_prompt: request.cover_prompt.clone(), title: Some(titled(&request)), status: MusicJobStatus::Running,
         dispatch: MusicJobDispatch::OpenRouter, phase: MusicJobPhase::Running, caption: request.caption, lyrics: request.lyrics,
@@ -4524,6 +4579,16 @@ fn stamp_create_mode(settings: &mut Value, create_mode: Option<&str>) {
     }
 }
 
+/// Library-only: styles chips so Song Details can copy them apart from caption.
+fn stamp_styles_text(settings: &mut Value, styles_text: Option<&str>) {
+    let Some(styles) = styles_text.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    if let Some(fields) = settings.as_object_mut() {
+        fields.insert("styles_text".into(), Value::String(styles.to_owned()));
+    }
+}
+
 fn apply_remote_status(job: &mut MusicJob, remote_status: &str) {
     match remote_status {
         "queued" => {
@@ -4629,6 +4694,7 @@ mod tests {
                 ..Default::default()
             }),
             create_mode: None,
+            styles_text: None,
         }, None, None, None)
         .unwrap();
         assert_eq!(body["duration"], 30.0);
@@ -4668,6 +4734,7 @@ mod tests {
                 vae_model: Some("vocoder.gguf".into()),
             }),
             create_mode: None,
+            styles_text: None,
         }, None, None, None).unwrap_err();
         assert!(error.contains("output_format"));
     }
@@ -4683,6 +4750,7 @@ mod tests {
             output_format: None, mp3_bitrate: None,
             models: Some(Mm3ModelSelection { lm_model: Some("lm.gguf".into()), depth_model: Some("depth.gguf".into()), cond_model: Some("condition.gguf".into()), dit_model: Some("dit.gguf".into()), vae_model: Some("vocoder.gguf".into()) }),
             create_mode: None,
+            styles_text: None,
         };
         let body = mm_request_from(&request, None, None, None).unwrap();
         assert_eq!(body["steps"], 30);
@@ -4708,6 +4776,7 @@ mod tests {
             output_format: None, mp3_bitrate: None,
             models: Some(Mm3ModelSelection { lm_model: Some("lm.gguf".into()), depth_model: Some("depth.gguf".into()), cond_model: Some("condition.gguf".into()), dit_model: Some("dit.gguf".into()), vae_model: Some("vocoder.gguf".into()) }),
             create_mode: None,
+            styles_text: None,
         };
         let body = mm_request_from(&request, None, None, None).unwrap();
         let lyrics = body["lyrics"].as_str().unwrap();
@@ -4732,6 +4801,7 @@ mod tests {
             lm_batch_size: None, synth_batch_size: None, dit_cfg: None, peak_clip: None,
             output_format: None, mp3_bitrate: None, models: None,
             create_mode: None,
+            styles_text: None,
         };
         assert!(mm_request_from(&request, None, None, None).unwrap_err().contains("caption"));
     }
@@ -4755,12 +4825,14 @@ mod tests {
             selected_component_ids: Some(vec!["lm-q8".into(), "depth-q8".into(), "condition-f32".into(), "dit-q6".into(), "vocoder-f32".into()]),
             cover_templates: Some(cover_prompt::default_templates()),
             cover_auto: Some(true),
+            ui_language: Some("tr".into()),
             separation: Some(separation::SeparationConfig::default()),
             cover_template_default: Some("photographic".into()),
         };
         let restored: PersistedStudioSettings = serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert!(restored.lyrics_sync.available());
         assert_eq!(restored.lyrics_sync.provider, lyrics_sync::AsrProvider::Parakeet);
+        assert_eq!(restored.ui_language.as_deref(), Some("tr"));
         assert!(restored.selected_profile_id.is_none());
         assert_eq!(restored.selected_component_ids.unwrap(), vec!["lm-q8", "depth-q8", "condition-f32", "dit-q6", "vocoder-f32"]);
         // Engine flags survive a restart, and the songs-per-request ceiling is
@@ -4805,6 +4877,7 @@ mod tests {
                 mp3_bitrate: None,
                 models: None,
                 create_mode: None,
+                styles_text: None,
             },
             PRIMARY_MUSIC_ENGINE_ID.into(),
         );

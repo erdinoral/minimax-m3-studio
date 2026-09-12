@@ -596,7 +596,8 @@ export const tr = {
     searchYourSongs: 'Search your songs...',
     filters: 'Filters',
     refineBy: 'REFINE BY',
-    liked: 'Liked',
+    liked: 'Beğenilen',
+    disliked: 'Beğenilmeyen',
     public: 'Public',
     private: 'Private',
     generatingStatus: 'Generating',
@@ -609,7 +610,6 @@ export const tr = {
     created: 'Oluşturuldu',
     styleTags: 'STYLE & TAGS',
     lyricsSection: 'SÖZLER',
-    copyLyrics: 'Copy',
 
     // Languages
     japanese: 'Japanese',
@@ -670,7 +670,9 @@ export const tr = {
     loadingProfile: 'Loading profile...',
     userNotFound: 'User not found',
     goBack: 'Go Back',
-    likes: 'Likes',
+    likes: 'Beğen',
+    dislikes: 'Beğenme',
+    tasteLearningHint: 'Beğeni ve beğenmeme, yazma asistanına neye yaklaşacağını ve neden kaçınacağını öğretir.',
     plays: 'Plays',
     recent: 'Recent',
     top: 'Top',
@@ -711,8 +713,14 @@ export const tr = {
 
     // Song Details (RightSidebar)
     more: 'daha fazla',
-    copy: 'Copy',
-    copied: 'Copied',
+    copy: 'Kopyala',
+    copied: 'Kopyalandı',
+    copyCaption: 'Caption kopyala',
+    copyStyles: 'Stilleri kopyala',
+    copyLyrics: 'Sözleri kopyala',
+    noCaption: 'Caption yok',
+    noStyles: 'Stil yok',
+    showLess: 'Daha az göster',
     copyAllTags: 'Copy all tags',
 
     // Song Dropdown Menu
@@ -1405,6 +1413,7 @@ export const tr = {
     stageOutput: 'Çıktı',
     stageOutputHint: 'Biçim, bitrate ve tepe kırpma.',
     assistantWriting: 'Asistan yazıyor',
+    assistantWaitForMusic: 'Müzik GPU’da üretiliyor. Bitene kadar bekle, sonra taslağı yaz — ikisi aynı anda çalışmaz.',
     activityCover: 'Kapak',
     activityKaraoke: 'Karaoke',
     karaokeOff: 'Karaoke is switched off. Turn it on in Settings and choose a recogniser.',

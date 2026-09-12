@@ -597,6 +597,7 @@ export const en = {
     filters: 'Filters',
     refineBy: 'REFINE BY',
     liked: 'Liked',
+    disliked: 'Disliked',
     public: 'Public',
     private: 'Private',
     generatingStatus: 'Generating',
@@ -609,7 +610,6 @@ export const en = {
     created: 'Created',
     styleTags: 'STYLE & TAGS',
     lyricsSection: 'LYRICS',
-    copyLyrics: 'Copy',
 
     // Languages
     japanese: 'Japanese',
@@ -671,6 +671,8 @@ export const en = {
     userNotFound: 'User not found',
     goBack: 'Go Back',
     likes: 'Likes',
+    dislikes: 'Dislike',
+    tasteLearningHint: 'Likes and dislikes teach the writing assistant what to aim for and what to avoid.',
     plays: 'Plays',
     recent: 'Recent',
     top: 'Top',
@@ -713,6 +715,12 @@ export const en = {
     more: 'more',
     copy: 'Copy',
     copied: 'Copied',
+    copyCaption: 'Copy caption',
+    copyStyles: 'Copy styles',
+    copyLyrics: 'Copy lyrics',
+    noCaption: 'No caption',
+    noStyles: 'No styles',
+    showLess: 'Show less',
     copyAllTags: 'Copy all tags',
 
     // Song Dropdown Menu
@@ -1405,6 +1413,7 @@ export const en = {
     stageOutput: 'Stage 3 · output',
     stageOutputHint: 'What is written to disk after the vocoder: loudness ceiling, container and bitrate.',
     assistantWriting: 'The assistant is writing',
+    assistantWaitForMusic: 'Music is generating on the GPU. Wait until it finishes, then write the draft — they cannot share the card.',
     activityCover: 'Drawing the cover',
     activityKaraoke: 'Timing the lyrics',
     karaokeOff: 'Karaoke is switched off. Turn it on in Settings and choose a recogniser.',

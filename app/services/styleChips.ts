@@ -140,6 +140,28 @@ export function appendStylesToCaption(caption: string, stylesText: string): stri
 }
 
 /**
+ * Split a stored library caption back into structured caption vs Styles chips.
+ * Engine requests append `Styles:` / instrument-lock blocks; details UI shows them apart.
+ */
+export function splitStoredCaption(stored: string): { caption: string; styles: string } {
+  const text = (stored || '').replace(/\r\n?/g, '\n').trim();
+  if (!text) return { caption: '', styles: '' };
+
+  const stylesLine = text.match(/^Styles:\s*(.+)$/im);
+  const styles = stylesLine?.[1]?.trim() ?? '';
+
+  let caption = text
+    .replace(/^Styles:\s*.+$/im, '')
+    .replace(/\n+Instrument lock \(from Styles[\s\S]*$/i, '')
+    .replace(/\n+Exclude:\s*.+$/im, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  if (!caption && !styles) return { caption: text, styles: '' };
+  return { caption, styles };
+}
+
+/**
  * Weak style tags → concrete MiniMax caption constraints so the engine hears
  * the instrument instead of swallowing it into "generic drums".
  * Keys are lower-case; matching is token or substring against Styles text.

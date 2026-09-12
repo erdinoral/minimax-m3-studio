@@ -42,6 +42,8 @@ interface CreatePanelProps {
   isGenerating: boolean;
   activeJobCount?: number;
   initialData?: { song: Song; timestamp: number } | null;
+  /** Taste hints from liked/disliked library tracks for the writing assistant. */
+  preferenceInstruction?: string;
   waitForJobsToDrain?: (signal?: AbortSignal) => Promise<void>;
   enqueueCreatePipeline?: (task: () => Promise<void>) => Promise<void>;
   createTempSongForClick?: (descriptionPreview: string) => string;
@@ -254,6 +256,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   isGenerating,
   activeJobCount = 0,
   initialData,
+  preferenceInstruction = '',
   waitForJobsToDrain,
   enqueueCreatePipeline,
   createTempSongForClick,
@@ -359,7 +362,25 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [coverBusy, setCoverBusy] = useState(false);
   const [asrModelId, setAsrModelId] = useState<string | null>(null);
   // Song language lock: auto = intent/lyrics rules; not UI/brief language alone.
-  const [lyricsLanguage, setLyricsLanguage] = useState<'auto' | 'tr' | 'en' | 'ru' | 'ja' | 'zh' | 'ko'>('auto');
+  const [lyricsLanguage, setLyricsLanguageState] = useState<'auto' | 'tr' | 'en' | 'ru' | 'ja' | 'zh' | 'ko'>(() => {
+    try {
+      const stored = localStorage.getItem('music3-studio-song-language');
+      if (stored === 'auto' || stored === 'tr' || stored === 'en' || stored === 'ru' || stored === 'ja' || stored === 'zh' || stored === 'ko') {
+        return stored;
+      }
+    } catch {
+      // ignore
+    }
+    return 'auto';
+  });
+  const setLyricsLanguage = (lang: typeof lyricsLanguage) => {
+    setLyricsLanguageState(lang);
+    try {
+      localStorage.setItem('music3-studio-song-language', lang);
+    } catch {
+      // ignore
+    }
+  };
 
   const ready = setup?.ready === true && setup?.engine_ready === true;
   const defaults = catalog?.defaults ?? {};
@@ -559,6 +580,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
           ? 'instrumental'
           : mode,
     };
+    if (stylesText.trim()) request.styles_text = stylesText.trim();
     if (name.trim()) request.title = name.trim();
     if (coverPrompt.trim()) request.cover_prompt = coverPrompt.trim();
     if (audioCodes.trim()) request.audio_codes = audioCodes.trim();
@@ -760,6 +782,12 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     return lines.join('\n\n');
   };
 
+  const withTaste = (instruction: string) => {
+    const taste = preferenceInstruction.trim();
+    if (!taste) return instruction;
+    return instruction.trim() ? `${instruction.trim()}\n\n${taste}` : taste;
+  };
+
   /** Queued Create path: one shot to /write (server retries while model loads). */
   const runAssistantWrite = async (
     target: 'all' | 'lyrics' | 'prompt',
@@ -773,7 +801,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     const payload = JSON.stringify({
       target,
       description: snap.name.trim(),
-      instruction,
+      instruction: withTaste(instruction),
       lyrics: clearLyrics ? '' : snap.lyrics.trim(),
       global_metadata: clearCaption ? '' : snap.globalMetadata.trim(),
       vocal_details: clearCaption ? '' : snap.vocalDetails.trim(),
@@ -855,6 +883,11 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
   type ApplyField = 'lyrics' | 'global_metadata' | 'vocal_details' | 'arrangement' | 'title' | 'cover_prompt' | 'duration_seconds';
 
+  // Music3 and the writing assistant share one GPU. Starting the assistant
+  // while a track is generating fights for VRAM; the Create pipeline waits
+  // instead, and standalone "write" buttons stay locked until the card is free.
+  const musicOccupiesGpu = activeJobCount > 0;
+
   const askAssistant = async (
     target: 'all' | 'lyrics' | 'prompt',
     instructionOverride?: string,
@@ -866,13 +899,17 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     },
   ): Promise<AssistDraftResult | null> => {
     if (!assistantReady || assisting) return null;
+    if (musicOccupiesGpu) {
+      setError(t('assistantWaitForMusic'));
+      return null;
+    }
     const run = new AbortController();
     assistRun.current = run;
     setAssisting(target);
     setError(null);
     const allow = (field: ApplyField) => !options?.applyOnly || options.applyOnly.includes(field);
     try {
-      const instruction = (instructionOverride ?? assistInstruction).trim();
+      const instruction = withTaste((instructionOverride ?? assistInstruction).trim());
       const clear = options?.clearCarried === true;
       const clearCaption = clear || options?.clearCaption === true;
       const clearLyrics = clear || options?.clearLyrics === true;
@@ -1072,6 +1109,11 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
         try {
           if (ac.signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
+          // Hold the LLM until the previous Music3 job releases the GPU.
+          updateTempSongForClick?.(tempId, { stage: 'stageWaitingInQueue' });
+          if (waitForJobsToDrain) await waitForJobsToDrain(ac.signal);
+          if (ac.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
           let working = { ...snap };
           let lyricsForRequest = working.instrumental
             ? (working.lyrics.trim() || instrumentalLyricsScaffold(numberOrUndefined(working.duration) ?? 60))
@@ -1165,6 +1207,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
           request.caption = captionText;
           request.lyrics = lyricsForRequest;
           request.duration_seconds = Math.min(durationForRequest, MAX_DURATION_SECONDS);
+          if (working.stylesText.trim()) request.styles_text = working.stylesText.trim();
+          else delete request.styles_text;
           if (titleForRequest) request.title = titleForRequest;
           else delete request.title;
           if (coverForRequest) request.cover_prompt = coverForRequest;
@@ -1304,13 +1348,21 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 className={`${CONTROL} resize-none`}
               />
               <p className="mt-2 text-[11px] leading-4 text-zinc-500">{t('songIdeaHint')}</p>
+              {preferenceInstruction.trim() && (
+                <p className="mt-2 text-[11px] leading-4 text-emerald-700 dark:text-emerald-300/90">{t('tasteLearningHint')}</p>
+              )}
+              {musicOccupiesGpu && (
+                <p className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-2.5 py-2 text-[11px] leading-4 text-amber-800 dark:text-amber-200">
+                  {t('assistantWaitForMusic')}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={() => void askAssistant('all', [
                   assistInstruction.trim(),
                   'Caption variety: avoid stock filler ("atmospheric pads", "driving drums"). Invent a distinctive hook, specific textures, and concrete mix moves (~300-450 words).',
                 ].filter(Boolean).join('\n\n'))}
-                disabled={assisting !== null || !assistInstruction.trim()}
+                disabled={assisting !== null || musicOccupiesGpu || !assistInstruction.trim()}
                 className={`mt-3 ${CTA}`}
               >
                 {assisting === 'all' ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
@@ -1353,7 +1405,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                         'Variety: avoid stock filler. Name a distinctive lead texture, concrete secondary layers, and section-to-section contrast (~300-450 words).',
                       ].join('\n'), { clearCaption: true, clearLyrics: true });
                     }}
-                    disabled={assisting !== null || (!assistInstruction.trim() && !stylesText.trim())}
+                    disabled={assisting !== null || musicOccupiesGpu || (!assistInstruction.trim() && !stylesText.trim())}
                     className={`mt-3 ${CTA}`}
                   >
                     {assisting === 'prompt' ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
@@ -1434,7 +1486,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 <button
                   type="button"
                   onClick={() => void rewriteFromCover()}
-                  disabled={assisting !== null || (!coverTranscript.trim() && !assistInstruction.trim())}
+                  disabled={assisting !== null || musicOccupiesGpu || (!coverTranscript.trim() && !assistInstruction.trim())}
                   className={`mt-3 ${CTA}`}
                 >
                   {assisting === 'all' ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
@@ -1516,9 +1568,9 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   <button
                     type="button"
                     onClick={() => void (mode === 'studio' ? writeAdvancedLyrics() : askAssistant('lyrics'))}
-                    disabled={assisting !== null}
+                    disabled={assisting !== null || musicOccupiesGpu}
                     className={ICON}
-                    title={t('writeLyrics')}
+                    title={musicOccupiesGpu ? t('assistantWaitForMusic') : t('writeLyrics')}
                   >
                     {assisting === 'lyrics' ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} className="text-brand" />}
                   </button>
@@ -1593,11 +1645,23 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 {assistantReady && captionOpen && (
                   <span
                     role="button"
-                    tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); void writeAdvancedCaption(); }}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); void writeAdvancedCaption(); } }}
-                    className={ICON}
-                    title={t('writeCaption')}
+                    tabIndex={assisting !== null || musicOccupiesGpu ? -1 : 0}
+                    aria-disabled={assisting !== null || musicOccupiesGpu}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (assisting !== null || musicOccupiesGpu) return;
+                      void writeAdvancedCaption();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (assisting !== null || musicOccupiesGpu) return;
+                        void writeAdvancedCaption();
+                      }
+                    }}
+                    className={`${ICON} ${(assisting !== null || musicOccupiesGpu) ? 'pointer-events-none opacity-40' : ''}`}
+                    title={musicOccupiesGpu ? t('assistantWaitForMusic') : t('writeCaption')}
                   >
                     {assisting === 'prompt' ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} className="text-brand" />}
                   </span>
@@ -1631,7 +1695,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     onEnhance={assistantReady ? () => void enhanceCaptionSection('global') : undefined}
                     enhancing={enhancingSection === 'global'}
                     enhanceTitle={t('enhanceSection')}
-                    enhanceDisabled={assisting !== null}
+                    enhanceDisabled={assisting !== null || musicOccupiesGpu}
                   />
                   <Pane
                     label={t('vocalDetails')}
@@ -1641,7 +1705,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     onEnhance={assistantReady ? () => void enhanceCaptionSection('vocal') : undefined}
                     enhancing={enhancingSection === 'vocal'}
                     enhanceTitle={t('enhanceSection')}
-                    enhanceDisabled={assisting !== null}
+                    enhanceDisabled={assisting !== null || musicOccupiesGpu}
                   />
                   <Pane
                     label={t('arrangementSection')}
@@ -1651,7 +1715,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     onEnhance={assistantReady ? () => void enhanceCaptionSection('arrangement') : undefined}
                     enhancing={enhancingSection === 'arrangement'}
                     enhanceTitle={t('enhanceSection')}
-                    enhanceDisabled={assisting !== null}
+                    enhanceDisabled={assisting !== null || musicOccupiesGpu}
                   />
                 </div>
               </div>

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Song } from '../types';
-import { Play, MoreHorizontal, Heart, ListPlus, Pause, Search, Filter, Check, Loader2, ThumbsUp, Video, Info, Clock, Timer, ImagePlus } from 'lucide-react';
+import { Play, MoreHorizontal, Heart, ListPlus, Pause, Search, Filter, Check, Loader2, ThumbsUp, ThumbsDown, Video, Info, Clock, Timer, ImagePlus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
 import { SongDropdownMenu } from './SongDropdownMenu';
@@ -14,11 +14,13 @@ interface SongListProps {
     currentSong: Song | null;
     selectedSong: Song | null;
     likedSongIds: Set<string>;
+    dislikedSongIds?: Set<string>;
     isPlaying: boolean;
     referenceTracks?: { id: string; filename: string; audio_url: string; duration?: number | null; created_at?: string }[];
     onPlay: (song: Song) => void;
     onSelect: (song: Song) => void;
     onToggleLike: (songId: string) => void;
+    onToggleDislike?: (songId: string) => void;
     onAddToPlaylist: (song: Song) => void;
     onOpenCoverRegen?: (song: Song) => void;
     onShowDetails?: (song: Song) => void;
@@ -42,7 +44,7 @@ interface SongListProps {
 
 
 // Define Filter Types
-    type FilterType = 'liked' | 'generating';
+    type FilterType = 'liked' | 'disliked' | 'generating';
 
 /// The badge names the complete component set the track was rendered with —
 /// that is what actually determines its fidelity.
@@ -123,11 +125,13 @@ export const SongList: React.FC<SongListProps> = ({
     currentSong,
     selectedSong,
     likedSongIds,
+    dislikedSongIds = new Set(),
     isPlaying,
     referenceTracks = [],
     onPlay,
     onSelect,
     onToggleLike,
+    onToggleDislike,
     onAddToPlaylist,
     onOpenCoverRegen,
     onShowDetails,
@@ -159,6 +163,7 @@ export const SongList: React.FC<SongListProps> = ({
 
     const FILTERS: { id: FilterType; label: string; icon: React.ReactNode }[] = [
         { id: 'liked', label: t('liked'), icon: <ThumbsUp size={16} /> },
+        { id: 'disliked', label: t('disliked'), icon: <ThumbsDown size={16} /> },
         { id: 'generating', label: t('generatingStatus'), icon: <Loader2 size={16} /> }
     ];
 
@@ -211,11 +216,12 @@ export const SongList: React.FC<SongListProps> = ({
             if (activeFilters.size === 0) return true;
 
             if (activeFilters.has('liked') && !likedSongIds.has(song.id)) return false;
+            if (activeFilters.has('disliked') && !dislikedSongIds.has(song.id)) return false;
             if (activeFilters.has('generating') && !song.isGenerating) return false;
 
             return true;
         });
-    }, [songs, searchQuery, activeFilters, likedSongIds]);
+    }, [songs, searchQuery, activeFilters, likedSongIds, dislikedSongIds]);
 
     const filteredUploads = useMemo(() => {
         if (activeFilters.size > 0) return [];
@@ -425,6 +431,7 @@ export const SongList: React.FC<SongListProps> = ({
                                     isSelectionMode={isSelecting}
                                     isChecked={selectedIds.has(item.song.id)}
                                     isLiked={likedSongIds.has(item.song.id)}
+                                    isDisliked={dislikedSongIds.has(item.song.id)}
                                     isPlaying={isPlaying}
                                     isOwner={item.song.nativeReplayAvailable || user?.id === item.song.userId}
                                     onPlay={() => onPlay(item.song)}
@@ -439,6 +446,7 @@ export const SongList: React.FC<SongListProps> = ({
                                         });
                                     }}
                                     onToggleLike={() => onToggleLike(item.song.id)}
+                                    onToggleDislike={() => onToggleDislike?.(item.song.id)}
                                     onAddToPlaylist={() => onAddToPlaylist(item.song)}
                                     onOpenCoverRegen={() => onOpenCoverRegen && onOpenCoverRegen(item.song)}
                                     onShowDetails={() => onShowDetails && onShowDetails(item.song)}
@@ -501,12 +509,14 @@ interface SongItemProps {
     isSelectionMode: boolean;
     isChecked: boolean;
     isLiked: boolean;
+    isDisliked?: boolean;
     isPlaying: boolean;
     isOwner: boolean;
     onPlay: () => void;
     onSelect: () => void;
     onToggleSelect: () => void;
     onToggleLike: () => void;
+    onToggleDislike?: () => void;
     onAddToPlaylist: () => void;
     onOpenCoverRegen?: () => void;
     onShowDetails?: () => void;
@@ -528,12 +538,14 @@ const SongItem: React.FC<SongItemProps> = ({
     isSelectionMode,
     isChecked,
     isLiked,
+    isDisliked = false,
     isPlaying,
     isOwner,
     onPlay,
     onSelect,
     onToggleSelect,
     onToggleLike,
+    onToggleDislike,
     onAddToPlaylist,
     onOpenCoverRegen,
     onShowDetails,
@@ -784,11 +796,19 @@ const SongItem: React.FC<SongItemProps> = ({
                         <button
                             className={`flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-white/5 transition-colors ${isLiked ? 'text-emerald-600 dark:text-emerald-500 bg-emerald-100 dark:bg-emerald-500/10' : 'text-zinc-400 hover:text-black dark:hover:text-white'}`}
                             onClick={(e) => { e.stopPropagation(); onToggleLike(); }}
+                            title={t('likes')}
                         >
                             <ThumbsUp size={16} fill={isLiked ? "currentColor" : "none"} />
                             {(song.likeCount || 0) > 0 && (
                                 <span className="text-xs font-bold">{song.likeCount}</span>
                             )}
+                        </button>
+                        <button
+                            className={`flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-white/5 transition-colors ${isDisliked ? 'text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-500/10' : 'text-zinc-400 hover:text-black dark:hover:text-white'}`}
+                            onClick={(e) => { e.stopPropagation(); onToggleDislike?.(); }}
+                            title={t('dislikes')}
+                        >
+                            <ThumbsDown size={16} fill={isDisliked ? "currentColor" : "none"} />
                         </button>
 
                         {/* Manual cover regeneration — opens CoverRegenModal where the user can

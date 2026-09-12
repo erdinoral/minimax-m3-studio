@@ -88,6 +88,8 @@ export interface Music3Request {
   title?: string;
   /** Create-tab provenance (simple / studio / instrumental / cover). Library-only. */
   create_mode?: 'simple' | 'studio' | 'instrumental' | 'cover' | string;
+  /** Styles chips / free text from Create. Library-only; caption already merges for the engine. */
+  styles_text?: string;
 }
 
 export interface Music3JobSong {

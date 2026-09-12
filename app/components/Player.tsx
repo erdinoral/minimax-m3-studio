@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { TRACK_ARTIST } from '../services/studio';
 import { Song } from '../types';
-import { Play, Pause, SkipBack, SkipForward, Repeat, Shuffle, Download, Heart, MoreVertical, Volume2, VolumeX, Maximize2, Repeat1, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Repeat, Shuffle, Download, Heart, ThumbsDown, MoreVertical, Volume2, VolumeX, Maximize2, Repeat1, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useResponsive } from '../context/ResponsiveContext';
 import { useI18n } from '../context/I18nContext';
@@ -30,7 +30,9 @@ interface PlayerProps {
     repeatMode: 'none' | 'all' | 'one';
     onToggleRepeat: () => void;
     isLiked: boolean;
+    isDisliked?: boolean;
     onToggleLike: () => void;
+    onToggleDislike?: () => void;
     onReusePrompt?: () => void;
     onAddToPlaylist?: () => void;
     onDelete?: () => void;
@@ -56,7 +58,9 @@ export const Player: React.FC<PlayerProps> = ({
     repeatMode,
     onToggleRepeat,
     isLiked,
+    isDisliked = false,
     onToggleLike,
+    onToggleDislike,
     onReusePrompt,
     onAddToPlaylist,
     onDelete,
@@ -213,8 +217,16 @@ export const Player: React.FC<PlayerProps> = ({
                             <button
                                 onClick={onToggleLike}
                                 className={`p-2 tap-highlight-none ${isLiked ? 'text-emerald-600 dark:text-emerald-500' : 'text-zinc-400 dark:text-white/50'}`}
+                                title={t('likes')}
                             >
                                 <Heart size={24} fill={isLiked ? "currentColor" : "none"} />
+                            </button>
+                            <button
+                                onClick={onToggleDislike}
+                                className={`p-2 tap-highlight-none ${isDisliked ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400 dark:text-white/50'}`}
+                                title={t('dislikes')}
+                            >
+                                <ThumbsDown size={22} fill={isDisliked ? "currentColor" : "none"} />
                             </button>
                         </div>
                     </div>
@@ -380,8 +392,16 @@ export const Player: React.FC<PlayerProps> = ({
                         <button
                             onClick={onToggleLike}
                             className={`p-2 tap-highlight-none ${isLiked ? 'text-emerald-600 dark:text-emerald-500' : 'text-zinc-400'}`}
+                            title={t('likes')}
                         >
                             <Heart size={20} fill={isLiked ? "currentColor" : "none"} />
+                        </button>
+                        <button
+                            onClick={onToggleDislike}
+                            className={`p-2 tap-highlight-none ${isDisliked ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400'}`}
+                            title={t('dislikes')}
+                        >
+                            <ThumbsDown size={18} fill={isDisliked ? "currentColor" : "none"} />
                         </button>
                         <button
                             onClick={onPrevious}
@@ -578,8 +598,16 @@ export const Player: React.FC<PlayerProps> = ({
                                 <button
                                     onClick={onToggleLike}
                                     className={`p-3 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors ${isLiked ? 'text-emerald-600 dark:text-emerald-500' : ''}`}
+                                    title={t('likes')}
                                 >
                                     <Heart size={22} fill={isLiked ? "currentColor" : "none"} />
+                                </button>
+                                <button
+                                    onClick={onToggleDislike}
+                                    className={`p-3 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors ${isDisliked ? 'text-rose-600 dark:text-rose-400' : ''}`}
+                                    title={t('dislikes')}
+                                >
+                                    <ThumbsDown size={20} fill={isDisliked ? "currentColor" : "none"} />
                                 </button>
                                 <button
                                     onClick={handleDownload}
@@ -658,8 +686,16 @@ export const Player: React.FC<PlayerProps> = ({
                     <button
                         onClick={onToggleLike}
                         className={`ml-1 sm:ml-2 transition-colors flex-shrink-0 hidden sm:block ${isLiked ? 'text-emerald-600 dark:text-emerald-500' : 'text-zinc-400 hover:text-zinc-900 dark:hover:text-white'}`}
+                        title={t('likes')}
                     >
                         <Heart size={18} fill={isLiked ? "currentColor" : "none"} />
+                    </button>
+                    <button
+                        onClick={onToggleDislike}
+                        className={`ml-1 transition-colors flex-shrink-0 hidden sm:block ${isDisliked ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400 hover:text-zinc-900 dark:hover:text-white'}`}
+                        title={t('dislikes')}
+                    >
+                        <ThumbsDown size={16} fill={isDisliked ? "currentColor" : "none"} />
                     </button>
                 </div>
 

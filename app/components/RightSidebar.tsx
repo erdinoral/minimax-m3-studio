@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TRACK_ARTIST } from '../services/studio';
 import { Song } from '../types';
-import { Heart, Play, Pause, MoreHorizontal, X, Copy, MoreVertical, Download, Repeat, Video, Music, Link as LinkIcon, Trash2, Edit3, Layers, ChevronDown, ClipboardCopy, ImagePlus, Loader2, Mic2 } from 'lucide-react';
+import { Heart, ThumbsDown, Play, Pause, MoreHorizontal, X, Copy, MoreVertical, Download, Repeat, Video, Music, Link as LinkIcon, Trash2, Edit3, Layers, ChevronDown, ClipboardCopy, ImagePlus, Loader2, Mic2 } from 'lucide-react';
 import { updateNativeSong } from '../services/nativeLibrary';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
@@ -10,6 +10,8 @@ import { apiUrl } from '../services/apiBase';
 import { SongDropdownMenu } from './SongDropdownMenu';
 import { AlbumCover } from './AlbumCover';
 import { openStems } from '../services/openStems';
+import { splitStoredCaption } from '../services/styleChips';
+import { captionSummary } from '../services/examples';
 
 interface RightSidebarProps {
     song: Song | null;
@@ -20,12 +22,16 @@ interface RightSidebarProps {
     onSongUpdate?: (song: Song) => void;
     onNavigateToProfile?: (username: string) => void;
     isLiked?: boolean;
+    isDisliked?: boolean;
     onToggleLike?: (songId: string) => void;
+    onToggleDislike?: (songId: string) => void;
     onDelete?: (song: Song) => void;
     onAddToPlaylist?: (song: Song) => void;
     onPlay?: (song: Song) => void;
     isPlaying?: boolean;
     currentSong?: Song | null;
+    onNavigateToSong?: (songId: string) => void;
+    onExportVideo?: (song: Song) => void;
 }
 
 /// Times the track's own lyrics with whichever recogniser is configured. The
@@ -80,14 +86,15 @@ const KaraokeAction: React.FC<{ song: Song; onDone?: (lrc: string) => void }> = 
     );
 };
 
-export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpenCoverRegen, onReuse, onReplayMusic, onSongUpdate, onNavigateToProfile, onNavigateToSong, isLiked, onToggleLike, onDelete, onAddToPlaylist, onPlay, isPlaying, currentSong }) => {
+export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpenCoverRegen, onReuse, onReplayMusic, onSongUpdate, onNavigateToProfile, onNavigateToSong, isLiked, isDisliked, onToggleLike, onToggleDislike, onDelete, onAddToPlaylist, onPlay, isPlaying, currentSong }) => {
     const { user } = useAuth();
     const { t } = useI18n();
     const [showMenu, setShowMenu] = useState(false);
     const [isOwner, setIsOwner] = useState(false);
     const [tagsExpanded, setTagsExpanded] = useState(false);
-    const [copiedStyle, setCopiedStyle] = useState(false);
     const [copiedLyrics, setCopiedLyrics] = useState(false);
+    const [copiedCaption, setCopiedCaption] = useState(false);
+    const [copiedStyles, setCopiedStyles] = useState(false);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleDraft, setTitleDraft] = useState('');
     const [titleError, setTitleError] = useState<string | null>(null);
@@ -389,6 +396,13 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpe
                                 active={isLiked}
                                 onClick={() => onToggleLike?.(song.id)}
                             />
+                            <ActionButton
+                                icon={<ThumbsDown size={20} fill={isDisliked ? 'currentColor' : 'none'} />}
+                                label={t('dislikes')}
+                                active={Boolean(isDisliked)}
+                                activeTone="dislike"
+                                onClick={() => onToggleDislike?.(song.id)}
+                            />
                         </div>
                         <div className="flex items-center gap-2">
                             <button
@@ -513,55 +527,124 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpe
 
                     <div className="h-px bg-zinc-200 dark:bg-white/5 w-full"></div>
 
-                    {/* Tags / Style */}
-                    <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                            <h2 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wide">{t('songDetails')}</h2>
-                            <button
-                                onClick={async (e) => {
-                                    e.stopPropagation();
-                                    try {
-                                        const allTags = Array.isArray(song.tags) && song.tags.length > 0
-                                            ? song.tags.join(', ')
-                                            : (song.style ?? '');
-                                        if (!allTags) return;
-                                        await navigator.clipboard.writeText(allTags);
-                                        setCopiedStyle(true);
-                                        setTimeout(() => setCopiedStyle(false), 2000);
-                                    } catch (error) {
-                                        console.error('Failed to copy style tags:', error);
-                                    }
-                                }}
-                                className={`relative z-10 flex items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${copiedStyle ? 'text-green-500' : 'text-zinc-500 hover:text-black dark:hover:text-white'}`}
-                                title={t('copyAllTags')}
-                            >
-                                <Copy size={12} /> {copiedStyle ? t('copied') : t('copy')}
-                            </button>
-                        </div>
-                        <div
-                            onClick={() => setTagsExpanded(!tagsExpanded)}
-                            className={`flex flex-wrap gap-1.5 cursor-pointer relative ${!tagsExpanded ? 'max-h-[22px] overflow-hidden' : ''}`}
-                        >
-                            {Array.isArray(song.tags) && song.tags.length > 0 ? (
-                                song.tags.map(tag => (
-                                    <span key={tag} className="px-2 py-0.5 bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 border border-zinc-200 dark:border-white/10 rounded text-[11px] font-medium text-zinc-600 dark:text-zinc-300 transition-colors">
-                                        {tag}
-                                    </span>
-                                ))
-                            ) : (
-                                (song.style || '').split(',').filter(Boolean).map((tag, idx) => (
-                                    <span key={idx} className="px-2 py-0.5 bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 border border-zinc-200 dark:border-white/10 rounded text-[11px] font-medium text-zinc-600 dark:text-zinc-300 transition-colors">
-                                        {tag.trim()}
-                                    </span>
-                                ))
-                            )}
-                            {!tagsExpanded && (
-                                <span className="absolute right-0 top-0 px-2 py-0.5 bg-zinc-200 dark:bg-zinc-700 rounded text-[11px] font-medium text-zinc-600 dark:text-zinc-300 pointer-events-none">
-                                    +{t('more')}
-                                </span>
-                            )}
-                        </div>
-                    </div>
+                    <h2 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wide">{t('songDetails')}</h2>
+
+                    {(() => {
+                        const fromParams = typeof song.generationParams?.styles_text === 'string'
+                            ? String(song.generationParams.styles_text).trim()
+                            : '';
+                        const split = splitStoredCaption(song.style || '');
+                        const stylesText = fromParams
+                            || split.styles
+                            || (Array.isArray(song.tags)
+                                ? song.tags.filter((tag) => tag && !['music3', 'queued', 'resumed'].includes(tag)).join(', ')
+                                : '');
+                        const captionText = split.caption;
+                        const summary = captionSummary(captionText);
+
+                        const copyField = async (value: string, mark: (on: boolean) => void) => {
+                            if (!value.trim()) return;
+                            try {
+                                await navigator.clipboard.writeText(value);
+                                mark(true);
+                                setTimeout(() => mark(false), 2000);
+                            } catch (error) {
+                                console.error('Failed to copy field:', error);
+                            }
+                        };
+
+                        return (
+                            <div className="space-y-3">
+                                <div className="bg-white dark:bg-black/20 rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
+                                    <div className="px-4 py-3 border-b border-zinc-100 dark:border-white/5 flex items-center justify-between bg-zinc-50 dark:bg-white/5">
+                                        <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">{t('caption')}</h3>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); void copyField(captionText, setCopiedCaption); }}
+                                            disabled={!captionText}
+                                            className={`flex items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer disabled:opacity-40 ${copiedCaption ? 'text-green-500' : 'text-zinc-500 hover:text-black dark:hover:text-white'}`}
+                                            title={t('copyCaption')}
+                                        >
+                                            <Copy size={12} /> {copiedCaption ? t('copied') : t('copy')}
+                                        </button>
+                                    </div>
+                                    <div className="p-4 max-h-[220px] overflow-y-auto custom-scrollbar">
+                                        {captionText ? (
+                                            <div className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed opacity-90">
+                                                {tagsExpanded ? captionText : (summary || captionText.slice(0, 280))}
+                                                {!tagsExpanded && captionText.length > 220 && (
+                                                    <button type="button" onClick={() => setTagsExpanded(true)} className="ml-1 text-[11px] font-semibold text-brand">
+                                                        +{t('more')}
+                                                    </button>
+                                                )}
+                                                {tagsExpanded && (
+                                                    <button type="button" onClick={() => setTagsExpanded(false)} className="mt-2 block text-[11px] font-semibold text-zinc-500">
+                                                        {t('showLess')}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs italic text-zinc-400">{t('noCaption')}</p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="bg-white dark:bg-black/20 rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
+                                    <div className="px-4 py-3 border-b border-zinc-100 dark:border-white/5 flex items-center justify-between bg-zinc-50 dark:bg-white/5">
+                                        <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">{t('stylesSection')}</h3>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); void copyField(stylesText, setCopiedStyles); }}
+                                            disabled={!stylesText}
+                                            className={`flex items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer disabled:opacity-40 ${copiedStyles ? 'text-green-500' : 'text-zinc-500 hover:text-black dark:hover:text-white'}`}
+                                            title={t('copyStyles')}
+                                        >
+                                            <Copy size={12} /> {copiedStyles ? t('copied') : t('copy')}
+                                        </button>
+                                    </div>
+                                    <div className="p-4">
+                                        {stylesText ? (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {stylesText.split(/[,|\n]/).map((part) => part.trim()).filter(Boolean).map((tag) => (
+                                                    <span key={tag} className="px-2 py-0.5 bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/10 rounded text-[11px] font-medium text-zinc-600 dark:text-zinc-300">
+                                                        {tag}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs italic text-zinc-400">{t('noStyles')}</p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="bg-white dark:bg-black/20 rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
+                                    <div className="px-4 py-3 border-b border-zinc-100 dark:border-white/5 flex items-center justify-between bg-zinc-50 dark:bg-white/5">
+                                        <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">{t('lyricsSection')}</h3>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); void copyField(song.lyrics || '', setCopiedLyrics); }}
+                                            disabled={!song.lyrics?.trim()}
+                                            className={`flex items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer disabled:opacity-40 ${copiedLyrics ? 'text-green-500' : 'text-zinc-500 hover:text-black dark:hover:text-white'}`}
+                                            title={t('copyLyrics')}
+                                        >
+                                            <Copy size={12} /> {copiedLyrics ? t('copied') : t('copy')}
+                                        </button>
+                                    </div>
+                                    <div className="p-4 max-h-[300px] overflow-y-auto custom-scrollbar">
+                                        <div className="text-sm text-zinc-700 dark:text-zinc-300 font-mono whitespace-pre-wrap leading-relaxed opacity-90">
+                                            {song.lyrics || (
+                                                <div className="text-zinc-400 dark:text-zinc-600 italic text-center py-8">
+                                                    {t('instrumental')}
+                                                    <br />
+                                                    <span className="text-xs not-italic">{t('noLyrics')}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* Generation Parameters Accordion */}
                     {(() => {
@@ -669,45 +752,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpe
                         </button>
                     )}
 
-                    {/* Lyrics Section */}
-                    <div className="bg-white dark:bg-black/20 rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
-                        <div className="px-4 py-3 border-b border-zinc-100 dark:border-white/5 flex items-center justify-between bg-zinc-50 dark:bg-white/5">
-                            <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2 flex items-center justify-between">{t('lyricsSection')}</h3>
-                            <button
-                                onClick={async (e) => {
-                                    e.stopPropagation();
-                                    try {
-                                        if (song.lyrics) {
-                                            await navigator.clipboard.writeText(song.lyrics);
-                                            setCopiedLyrics(true);
-                                            setTimeout(() => setCopiedLyrics(false), 2000);
-                                        }
-                                    } catch (error) {
-                                        console.error('Failed to copy lyrics:', error);
-                                    }
-                                }}
-                                className={`flex items-center gap-1 text-[10px] font-medium transition-colors cursor-pointer ${copiedLyrics ? 'text-green-500' : 'text-zinc-500 hover:text-black dark:hover:text-white'}`}
-                            >
-                                <Copy size={12} /> {copiedLyrics ? t('copied') : t('copy')}
-                            </button>
-                        </div>
-                        <div className="p-4 max-h-[300px] overflow-y-auto custom-scrollbar">
-                            <div className="text-sm text-zinc-700 dark:text-zinc-300 font-mono whitespace-pre-wrap leading-relaxed opacity-90">
-                                {song.lyrics || <div className="text-zinc-400 dark:text-zinc-600 italic text-center py-8">{t('instrumental')}<br /><span className="text-xs not-italic">{t('noLyrics')}</span></div>}
-                            </div>
-                        </div>
-                    </div>
-
                 </div>
             </div>
         </div>
     );
 };
 
-const ActionButton: React.FC<{ icon: React.ReactNode; label?: string; active?: boolean; onClick?: () => void }> = ({ icon, label, active, onClick }) => (
+const ActionButton: React.FC<{ icon: React.ReactNode; label?: string; active?: boolean; activeTone?: 'like' | 'dislike'; onClick?: () => void }> = ({ icon, label, active, activeTone = 'like', onClick }) => (
     <button
         onClick={onClick}
-        className={`flex items-center gap-1.5 ${active ? 'text-emerald-600 dark:text-emerald-500' : 'text-zinc-400'} hover:text-black dark:hover:text-white transition-colors`}
+        className={`flex items-center gap-1.5 ${active
+            ? (activeTone === 'dislike' ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-500')
+            : 'text-zinc-400'} hover:text-black dark:hover:text-white transition-colors`}
     >
         {icon}
         {label && <span className="text-xs font-semibold">{label}</span>}

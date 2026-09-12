@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { CreatePanel } from './components/CreatePanel';
 import { SongList } from './components/SongList';
@@ -68,21 +68,13 @@ import { StudioOffline } from './components/StudioOffline';
 import { StudioToolsPanel } from './components/StudioToolsPanel';
 import { createNativePlaylist, deleteNativeSong, loadNativeLibrarySongs, loadNativePlaylists, updateNativePlaylist } from './services/nativeLibrary';
 import { openCoverFromSong } from './services/openCover';
-
-const NATIVE_LIKED_SONG_IDS_KEY = 'minimax-music3-native-liked-song-ids';
-
-function loadNativeLikedSongIds(): Set<string> {
-  try {
-    const stored = JSON.parse(localStorage.getItem(NATIVE_LIKED_SONG_IDS_KEY) || '[]');
-    return new Set(Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function saveNativeLikedSongIds(ids: Set<string>): void {
-  localStorage.setItem(NATIVE_LIKED_SONG_IDS_KEY, JSON.stringify([...ids]));
-}
+import {
+  buildPreferenceInstruction,
+  loadDislikedSongIds,
+  loadLikedSongIds,
+  saveDislikedSongIds,
+  saveLikedSongIds,
+} from './services/preferences';
 
 function NativeUnavailableView({ title, detail }: { title: string; detail: string }): React.ReactElement {
   return (
@@ -290,6 +282,7 @@ function AppContent() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [likedSongIds, setLikedSongIds] = useState<Set<string>>(new Set());
+  const [dislikedSongIds, setDislikedSongIds] = useState<Set<string>>(new Set());
   const [playQueue, setPlayQueue] = useState<Song[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
 
@@ -463,7 +456,8 @@ function AppContent() {
         return [...extras, ...generatingSongs, ...nativeSongs];
       });
       setPlaylists(nativePlaylists);
-      setLikedSongIds(loadNativeLikedSongIds());
+      setLikedSongIds(loadLikedSongIds());
+      setDislikedSongIds(loadDislikedSongIds());
       return true;
     } catch {
       return false;
@@ -1139,10 +1133,24 @@ function AppContent() {
         isGenerating: true,
         stage: 'stageWaitingInQueue',
         tags: ['music3'],
+        generationParams: {
+          ...(params.create_mode ? { create_mode: params.create_mode } : {}),
+          ...(params.styles_text ? { styles_text: params.styles_text } : {}),
+        },
       }, ...prev]);
     } else {
       setSongs(prev => prev.map(song => song.id === tempId
-        ? { ...song, title: params.title?.trim() || song.title, style: params.caption || song.style, lyrics: params.lyrics || song.lyrics }
+        ? {
+            ...song,
+            title: params.title?.trim() || song.title,
+            style: params.caption || song.style,
+            lyrics: params.lyrics || song.lyrics,
+            generationParams: {
+              ...(song.generationParams || {}),
+              ...(params.create_mode ? { create_mode: params.create_mode } : {}),
+              ...(params.styles_text ? { styles_text: params.styles_text } : {}),
+            },
+          }
         : song));
     }
 
@@ -1229,19 +1237,52 @@ function AppContent() {
     setCurrentTime(time);
   };
 
-  /// Favourites are a local library flag: the desktop studio has no social
-  /// service, so the star is persisted next to the library instead of being
-  /// posted to a server that does not exist.
+  /// Favourites / rejects are local library flags. The writing assistant reads
+  /// them as taste hints so new drafts lean toward likes and away from dislikes.
   const toggleLike = (songId: string) => {
     const isLiked = likedSongIds.has(songId);
     setLikedSongIds(prev => {
       const next = new Set(prev);
       if (isLiked) next.delete(songId);
       else next.add(songId);
-      saveNativeLikedSongIds(next as Set<string>);
+      saveLikedSongIds(next);
       return next;
     });
+    if (!isLiked) {
+      setDislikedSongIds(prev => {
+        if (!prev.has(songId)) return prev;
+        const next = new Set(prev);
+        next.delete(songId);
+        saveDislikedSongIds(next);
+        return next;
+      });
+    }
   };
+
+  const toggleDislike = (songId: string) => {
+    const isDisliked = dislikedSongIds.has(songId);
+    setDislikedSongIds(prev => {
+      const next = new Set(prev);
+      if (isDisliked) next.delete(songId);
+      else next.add(songId);
+      saveDislikedSongIds(next);
+      return next;
+    });
+    if (!isDisliked) {
+      setLikedSongIds(prev => {
+        if (!prev.has(songId)) return prev;
+        const next = new Set(prev);
+        next.delete(songId);
+        saveLikedSongIds(next);
+        return next;
+      });
+    }
+  };
+
+  const preferenceInstruction = useMemo(
+    () => buildPreferenceInstruction(songs, likedSongIds, dislikedSongIds),
+    [songs, likedSongIds, dislikedSongIds],
+  );
 
   const handleDeleteSong = (song: Song) => {
     handleDeleteSongs([song]);
@@ -1282,6 +1323,13 @@ function AppContent() {
           setLikedSongIds(prev => {
             const next = new Set(prev);
             succeeded.forEach(id => next.delete(id));
+            saveLikedSongIds(next);
+            return next;
+          });
+          setDislikedSongIds(prev => {
+            const next = new Set(prev);
+            succeeded.forEach(id => next.delete(id));
+            saveDislikedSongIds(next);
             return next;
           });
 
@@ -1472,6 +1520,7 @@ function AppContent() {
                 isGenerating={isGenerating}
                 activeJobCount={activeJobCount + pendingClickCount}
                 initialData={reuseData}
+                preferenceInstruction={preferenceInstruction}
                 waitForJobsToDrain={waitForJobsToDrain}
                 enqueueCreatePipeline={enqueueCreatePipeline}
                 createTempSongForClick={createTempSongForClick}
@@ -1495,6 +1544,7 @@ function AppContent() {
                 currentSong={currentSong}
                 selectedSong={selectedSong}
                 likedSongIds={likedSongIds}
+                dislikedSongIds={dislikedSongIds}
                 isPlaying={isPlaying}
                 onPlay={playSong}
                 onSelect={(s) => {
@@ -1502,6 +1552,7 @@ function AppContent() {
                   setShowRightSidebar(true);
                 }}
                 onToggleLike={toggleLike}
+                onToggleDislike={toggleDislike}
                 onAddToPlaylist={openAddToPlaylistModal}
                 onOpenCoverRegen={openCoverRegen}
                 onShowDetails={handleShowDetails}
@@ -1537,7 +1588,9 @@ function AppContent() {
                 onExportVideo={setSongForVideo}
                   onSongUpdate={handleSongUpdate}
                   isLiked={selectedSong ? likedSongIds.has(selectedSong.id) : false}
+                  isDisliked={selectedSong ? dislikedSongIds.has(selectedSong.id) : false}
                   onToggleLike={toggleLike}
+                  onToggleDislike={toggleDislike}
                   onDelete={handleDeleteSong}
                   onPlay={playSong}
                   isPlaying={isPlaying}
@@ -1614,7 +1667,9 @@ function AppContent() {
         repeatMode={repeatMode}
         onToggleRepeat={() => setRepeatMode(prev => prev === 'none' ? 'all' : prev === 'all' ? 'one' : 'none')}
         isLiked={currentSong ? likedSongIds.has(currentSong.id) : false}
+        isDisliked={currentSong ? dislikedSongIds.has(currentSong.id) : false}
         onToggleLike={() => currentSong && toggleLike(currentSong.id)}
+        onToggleDislike={() => currentSong && toggleDislike(currentSong.id)}
         onReusePrompt={() => currentSong && handleReuse(currentSong)}
         onAddToPlaylist={() => currentSong && openAddToPlaylistModal(currentSong)}
         onDelete={() => currentSong && handleDeleteSong(currentSong)}
@@ -1693,7 +1748,9 @@ function AppContent() {
               onExportVideo={setSongForVideo}
               onSongUpdate={handleSongUpdate}
               isLiked={selectedSong ? likedSongIds.has(selectedSong.id) : false}
+              isDisliked={selectedSong ? dislikedSongIds.has(selectedSong.id) : false}
               onToggleLike={toggleLike}
+              onToggleDislike={toggleDislike}
               onDelete={handleDeleteSong}
               onPlay={playSong}
               isPlaying={isPlaying}
