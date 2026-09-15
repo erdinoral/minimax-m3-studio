@@ -1595,9 +1595,22 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             <Card
               title={t('stylesSection')}
               actions={
-                <button type="button" onClick={() => setStylesText('')} className={ICON} title={t('resetPrompt')}>
-                  <RotateCcw size={14} />
-                </button>
+                <>
+                  {assistantReady && (
+                    <button
+                      type="button"
+                      onClick={() => void writeAdvancedCaption()}
+                      disabled={assisting !== null || musicOccupiesGpu || (!stylesText.trim() && !lyrics.trim() && !excludeStyles.trim())}
+                      className={ICON}
+                      title={musicOccupiesGpu ? t('assistantWaitForMusic') : t('writeCaption')}
+                    >
+                      {assisting === 'prompt' ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} className="text-brand" />}
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setStylesText('')} className={ICON} title={t('resetPrompt')}>
+                    <RotateCcw size={14} />
+                  </button>
+                </>
               }
             >
               <AutoTextarea
