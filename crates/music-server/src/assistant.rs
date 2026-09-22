@@ -77,6 +77,9 @@ Instrumental STRICT rules (failure mode is vocals creeping back in):
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssistTarget {
+    /// Turn a loose Styles note into a focused producer brief before any lyrics
+    /// or structured caption are written from it.
+    Style,
     /// Write both the lyrics and the three caption fields.
     All,
     /// Rewrite only the lyrics, keeping them coherent with the current caption.
@@ -117,6 +120,8 @@ fn default_duration() -> f64 {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AssistDraft {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub style_brief: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lyrics: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub global_metadata: Option<String>,
@@ -142,6 +147,10 @@ pub fn instructions(request: &AssistRequest) -> (String, &'static [&'static str]
     let references = references_for(request);
     let notes = craft_notes(request);
     match request.target {
+        AssistTarget::Style => (
+            "You are a music producer preparing a concise creative brief for MiniMax Music 3. Given the user's Styles note, preserve every explicit genre, instrument, vocal, language, tempo and exclusion. Resolve contradictions, limit the core direction to two compatible genres plus one influence, and replace vague tags with concrete performance and production direction. Do not mention artists or copyrighted songs. Do not write lyrics or a structured caption yet. Answer with ONLY a JSON object with key: style_brief.".into(),
+            &["style_brief"],
+        ),
         AssistTarget::Lyrics => (
             format!(
                 "You write lyrics for MiniMax Music 3, a lyrics+description music generation model.\n\
@@ -183,7 +192,7 @@ pub fn instructions(request: &AssistRequest) -> (String, &'static [&'static str]
 /// vocal would only invite one. So each arrives when the request calls for it.
 fn craft_notes(request: &AssistRequest) -> String {
     let mut notes = String::new();
-    if request.target != AssistTarget::Prompt && !request.instrumental {
+    if matches!(request.target, AssistTarget::Lyrics | AssistTarget::All) && !request.instrumental {
         notes.push_str(DICTION_RULE);
         notes.push_str(&lyrics_language_note(request));
     }
@@ -298,6 +307,10 @@ pub fn user_message(request: &AssistRequest) -> String {
     };
 
     match request.target {
+        AssistTarget::Style => format!(
+            "Raw Styles note to turn into a focused producer brief:\n{}\n\nKeep the brief concise (roughly 80-140 English words).",
+            if brief.is_empty() { "(none)" } else { brief },
+        ),
         AssistTarget::Lyrics => format!(
             "{lang_cue}Lyrics instruction: {}\nCurrent structured prompt, keep the lyrics coherent with it:\nGlobal metadata: {}\nVocal details: {}\nArrangement: {}\nTarget duration: {} seconds.{instrumental}",
             if brief.is_empty() { "(none — write lyrics that fit the structured prompt)" } else { brief },
@@ -374,6 +387,7 @@ pub fn parse_draft(content: &str, required: &[&str]) -> Result<AssistDraft> {
         }
     }
     Ok(AssistDraft {
+        style_brief: field("style_brief"),
         lyrics: field("lyrics"),
         global_metadata: field("global_metadata"),
         vocal_details: field("vocal_details"),

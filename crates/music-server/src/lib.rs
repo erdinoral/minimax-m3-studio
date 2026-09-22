@@ -304,6 +304,17 @@ struct OpenRouterTranscriptionRequest {
     language: Option<String>,
 }
 
+/// A reference upload is short-lived: it is only written to the recogniser's
+/// work directory while the local ASR engine reads it, then removed again.
+/// Keeping this separate from the OpenRouter request lets Cover work entirely
+/// offline when Whisper or Parakeet is already installed for karaoke.
+#[derive(Debug, Deserialize)]
+struct LocalTranscriptionRequest {
+    audio_base64: String,
+    audio_format: String,
+    language: Option<String>,
+}
+
 /// Launch flags for the local engine process. They are a property of the
 /// running engine, so changing one restarts it; upstream has no way to apply
 /// them to a live server.
@@ -544,6 +555,7 @@ pub async fn serve() -> anyhow::Result<()> {
         .route("/v1/openrouter/catalog", get(openrouter_catalog))
         .route("/v1/openrouter/catalog/refresh", post(refresh_openrouter_catalog))
         .route("/v1/openrouter/transcriptions", post(create_openrouter_transcription))
+        .route("/v1/transcriptions/local", post(create_local_transcription))
         .route("/v1/openrouter/covers", post(create_openrouter_cover))
         .route("/editor", get(|| async { axum::response::Redirect::permanent("/editor/index.html") }))
         .route("/editor/{*path}", get(editor_asset))
@@ -2298,6 +2310,69 @@ async fn create_openrouter_transcription(
         .map_err(|error| api_error(StatusCode::BAD_GATEWAY, format!("OpenRouter transcription failed: {error}")))
 }
 
+/// Transcribes a Cover reference through the recogniser selected for karaoke.
+/// Unlike karaoke this needs plain text, so timestamps are joined into a
+/// readable draft rather than aligned to pre-existing lyrics.
+async fn create_local_transcription(
+    State(state): State<AppState>,
+    Json(input): Json<LocalTranscriptionRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
+    use base64::Engine as _;
+
+    let config = state.lyrics_sync_config.read().await.clone();
+    let ready = match config.provider {
+        lyrics_sync::AsrProvider::Whisper => {
+            state.lyrics_sync.whisper_binary().is_some() && state.lyrics_sync.whisper_model_ready(&config)
+        }
+        lyrics_sync::AsrProvider::Parakeet => state.lyrics_sync.parakeet_ready(),
+        lyrics_sync::AsrProvider::None | lyrics_sync::AsrProvider::OpenRouter => false,
+    };
+    if !ready {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "Local transcription is not ready. Install and select Whisper or Parakeet in Settings → Karaoke, or choose an OpenRouter speech model.".into(),
+        ));
+    }
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(input.audio_base64.as_bytes())
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "The reference audio could not be read.".into()))?;
+    // Browser uploads are base64 encoded, so this leaves enough room for a
+    // normal song while stopping a malformed request from consuming memory.
+    if bytes.len() > 100 * 1024 * 1024 {
+        return Err(api_error(StatusCode::PAYLOAD_TOO_LARGE, "Reference audio is limited to 100 MB.".into()));
+    }
+    let extension = match input.audio_format.to_ascii_lowercase().as_str() {
+        "mp3" | "wav" | "flac" | "m4a" | "ogg" | "webm" | "aac" => input.audio_format.to_ascii_lowercase(),
+        _ => "wav".to_string(),
+    };
+    let work = state.lyrics_sync.downloader().root().join("cover-work");
+    fs::create_dir_all(&work)
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let path = work.join(format!("reference-{}.{}", uuid::Uuid::now_v7(), extension));
+    fs::write(&path, bytes)
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    let sync = state.lyrics_sync.clone();
+    let language = input.language.filter(|value| !value.trim().is_empty());
+    let run_config = config.clone();
+    let run_path = path.clone();
+    let result = tokio::task::spawn_blocking(move || match run_config.provider {
+        lyrics_sync::AsrProvider::Whisper => sync.whisper_words(&run_config, &run_path, language.as_deref(), ""),
+        lyrics_sync::AsrProvider::Parakeet => sync.parakeet_words(&run_path),
+        _ => unreachable!("local recogniser readiness was checked above"),
+    })
+    .await
+    .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()));
+    let _ = fs::remove_file(&path);
+    let words = result?.map_err(|error| api_error(StatusCode::BAD_GATEWAY, format!("Local transcription failed: {error}")))?;
+    let text = words.into_iter().map(|(_, word)| word).collect::<Vec<_>>().join(" ");
+    if text.trim().is_empty() {
+        return Err(api_error(StatusCode::BAD_GATEWAY, "The recogniser found no speech in this reference.".into()));
+    }
+    Ok(Json(serde_json::json!({ "text": text, "provider": config.provider })))
+}
+
 async fn create_openrouter_cover(
     State(state): State<AppState>,
     Json(input): Json<OpenRouterCoverRequest>,
@@ -3917,6 +3992,22 @@ async fn create_music_job(
     let mut generation_settings = mm_request.clone();
     stamp_create_mode(&mut generation_settings, request.create_mode.as_deref());
     stamp_styles_text(&mut generation_settings, request.styles_text.as_deref());
+
+    // The supervisor normally starts the engine in the background, but a user
+    // can press Generate during its two-second check interval (or just after
+    // an engine crash). Start it on demand as well, so the first request is a
+    // real attempt rather than an opaque connection-refused response.
+    if !state.music_server.health().await {
+        if let Err(error) = restart_engine(&state).await {
+            let job = failed_request_job(
+                request,
+                engine_id,
+                format!("The local music engine could not start: {error}"),
+            );
+            state.jobs.write().await.insert(job.id.clone(), job.clone());
+            return (StatusCode::ACCEPTED, Json(job));
+        }
+    }
     match state.music_server.submit(mm_request).await {
         Ok(remote) => {
             let job = MusicJob {
@@ -3939,12 +4030,15 @@ async fn create_music_job(
             (StatusCode::ACCEPTED, Json(job))
         }
         Err(error) => {
-            let job = queued_not_configured_job(request, engine_id);
-            let job = MusicJob {
-                cover_prompt: None,
-                message: error.to_string(),
-                ..job
-            };
+            // A refused submission cannot become runnable by waiting. This
+            // used to create a queued, "not configured" job with the primary
+            // engine id, so the UI kept polling a dead endpoint and replaced
+            // the useful error with its generic failure toast.
+            let job = failed_request_job(
+                request,
+                engine_id,
+                format!("The local music engine rejected the generation request: {error}"),
+            );
             state.jobs.write().await.insert(job.id.clone(), job.clone());
             (StatusCode::ACCEPTED, Json(job))
         }

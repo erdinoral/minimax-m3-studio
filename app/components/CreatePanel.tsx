@@ -4,7 +4,7 @@ import { AlertTriangle, ChevronDown, CircleAlert, Dices, FileAudio, FolderOpen, 
 import type { Music3Request, Song } from '../types';
 import { useI18n } from '../context/I18nContext';
 import { joinCaption, randomExample, splitCaption } from '../services/examples';
-import { loadNativeOpenRouterCatalog, modelsForCapability, transcribeWithNativeOpenRouter } from '../services/nativeOpenRouter';
+import { loadNativeOpenRouterCatalog, modelsForCapability, transcribeWithLocalRecognizer, transcribeWithNativeOpenRouter } from '../services/nativeOpenRouter';
 import { appendStylesToCaption, expandStylesForCaption, orderedStyleChips, recordStylesTextChips, styleTextHasChip, toggleStyleInText } from '../services/styleChips';
 
 /** mm-server rejects empty lyrics; instrumental = section tags, no sung words. */
@@ -496,11 +496,19 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   };
 
   const transcribeCover = async () => {
-    if (!coverFile || !asrModelId || coverBusy) return;
+    if (!coverFile || coverBusy) return;
     setCoverBusy(true);
     setError(null);
     try {
-      const text = await transcribeWithNativeOpenRouter(asrModelId, coverFile);
+      // Karaoke's Whisper/Parakeet install doubles as Cover's offline ASR.
+      // If it is not installed, retain the existing cloud route as a fallback.
+      let text: string;
+      try {
+        text = await transcribeWithLocalRecognizer(coverFile);
+      } catch (localReason) {
+        if (!asrModelId) throw localReason;
+        text = await transcribeWithNativeOpenRouter(asrModelId, coverFile);
+      }
       setCoverTranscript(text.trim());
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -644,6 +652,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   };
 
   type AssistDraftResult = {
+    style_brief?: string;
     lyrics?: string;
     global_metadata?: string;
     vocal_details?: string;
@@ -742,6 +751,51 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     return lines.join('\n\n');
   };
 
+  const buildStyleProducerInstruction = (snap: CreateSnapshot) => {
+    const lines = [
+      'Turn the raw Styles note below into a concise, high-quality producer brief for MiniMax Music 3.',
+      'Keep every explicit constraint (genre, instruments, BPM, vocal, language, exclusions). Resolve contradictions instead of stacking unrelated genres.',
+      'Choose at most two compatible core genres and one supporting influence. Replace vague words with concrete groove, performance and production direction.',
+      `Raw Styles:\n${snap.stylesText.trim()}`,
+    ];
+    if (snap.excludeStyles.trim()) lines.push(`Exclude / avoid:\n${snap.excludeStyles.trim()}`);
+    if (snap.instrumental) lines.push('This is instrumental: no vocals or vocal textures.');
+    if (snap.vocalGender === 'male') lines.push('Vocal gender constraint: Male lead.');
+    if (snap.vocalGender === 'female') lines.push('Vocal gender constraint: Female lead.');
+    return lines.join('\n\n');
+  };
+
+  /**
+   * A second, editorial pass is more useful than simply asking for a longer
+   * caption. It gives the writing model the draft it must improve, while the
+   * first pass remains free to turn a short idea into a complete song plan.
+   */
+  const buildProducerQualityPassInstruction = (snap?: CreateSnapshot) => {
+    const currentGlobal = snap?.globalMetadata ?? globalMetadata;
+    const currentVocal = snap?.vocalDetails ?? vocalDetails;
+    const currentArrangement = snap?.arrangement ?? arrangement;
+    const currentStyles = snap?.stylesText ?? stylesText;
+    const currentLyrics = snap?.lyrics ?? lyrics;
+    const currentExclude = snap?.excludeStyles ?? excludeStyles;
+    const currentInstrumental = snap?.instrumental ?? instrumental;
+    const currentGender = snap?.vocalGender ?? vocalGender;
+    const lines = [
+      'Act as the final producer and quality editor for this MiniMax Music 3 structured caption. Return all three caption fields in JSON.',
+      'Keep the musical intent and every explicit user constraint, but revise weak details. Resolve contradictions between genre, energy, tempo, vocal identity and instrumentation.',
+      'Make Arrangement a credible timeline aligned to every lyric section tag: say what enters, exits or changes, rather than listing equipment.',
+      'Replace generic filler with a distinctive hook, concrete playing technique, groove detail and restrained mix moves. Do not invent an exact BPM, key, singer gender or artist reference unless it is already stated.',
+      'Keep the caption in English, do not quote lyric lines, and keep the whole result focused enough for Music3 (roughly 280–450 words).',
+      `Current caption to audit:\nGlobal Metadata:\n${currentGlobal.trim() || '(empty)'}\n\nVocal Details:\n${currentVocal.trim() || '(empty)'}\n\nArrangement:\n${currentArrangement.trim() || '(empty)'}`,
+    ];
+    if (currentStyles.trim()) lines.push(`Styles — preserve every named genre, instrument and percussion:\n${currentStyles.trim()}`);
+    if (currentLyrics.trim()) lines.push(`Lyrics — use these tags for arrangement alignment; do not quote their words:\n${currentLyrics.trim()}`);
+    if (currentExclude.trim()) lines.push(`Exclude / avoid:\n${currentExclude.trim()}`);
+    if (currentInstrumental) lines.push('This is instrumental: remove sung-vocal instructions and name the lead melodic texture instead.');
+    if (currentGender === 'male') lines.push('Vocal gender constraint: Male lead.');
+    if (currentGender === 'female') lines.push('Vocal gender constraint: Female lead.');
+    return lines.join('\n\n');
+  };
+
   /** Empty box or a few keywords → seed; tagged verses → keep as real lyrics. */
   const lyricsLookLikeSeed = (text: string) => {
     const value = text.trim();
@@ -790,7 +844,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
   /** Queued Create path: one shot to /write (server retries while model loads). */
   const runAssistantWrite = async (
-    target: 'all' | 'lyrics' | 'prompt',
+    target: 'style' | 'all' | 'lyrics' | 'prompt',
     instruction: string,
     snap: CreateSnapshot,
     signal: AbortSignal,
@@ -820,6 +874,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     const body = await response.json().catch(() => null);
     if (!response.ok) throw new Error(body?.error || String(response.status));
     const draft: AssistDraftResult = {};
+    if (typeof body?.style_brief === 'string') draft.style_brief = body.style_brief;
     if (typeof body?.lyrics === 'string') draft.lyrics = body.lyrics;
     if (typeof body?.global_metadata === 'string') draft.global_metadata = body.global_metadata;
     if (typeof body?.vocal_details === 'string') draft.vocal_details = body.vocal_details;
@@ -879,6 +934,12 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     } finally {
       setEnhancingSection(null);
     }
+  };
+
+  const runProducerQualityPass = async () => {
+    if (!assistantReady || assisting || !caption.trim()) return;
+    setCaptionOpen(true);
+    await askAssistant('prompt', buildProducerQualityPassInstruction(), { clearCaption: false });
   };
 
   type ApplyField = 'lyrics' | 'global_metadata' | 'vocal_details' | 'arrangement' | 'title' | 'cover_prompt' | 'duration_seconds';
@@ -1115,6 +1176,25 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
           if (ac.signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
           let working = { ...snap };
+          // The short Styles box is deliberately not sent straight to caption
+          // writing. A producer pass first turns it into one coherent musical
+          // direction, so lyrics and the structured caption inherit the same
+          // tempo, instrumentation and energy decisions.
+          if (assistantReady && working.stylesText.trim()) {
+            updateTempSongForClick?.(tempId, { stage: 'stageWritingCaption' });
+            const styleDraft = await runAssistantWrite(
+              'style',
+              buildStyleProducerInstruction(working),
+              working,
+              ac.signal,
+            );
+            if (styleDraft.style_brief?.trim()) {
+              working = { ...working, stylesText: styleDraft.style_brief.trim() };
+              setStylesText(working.stylesText);
+              recordStylesTextChips(working.stylesText);
+              setStyleChipOrder(orderedStyleChips());
+            }
+          }
           let lyricsForRequest = working.instrumental
             ? (working.lyrics.trim() || instrumentalLyricsScaffold(numberOrUndefined(working.duration) ?? 60))
             : working.lyrics.trim();
@@ -1149,6 +1229,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
           let titleForRequest = working.name.trim();
           let coverForRequest = working.coverPrompt.trim();
           let durationForRequest = numberOrUndefined(working.duration) ?? 60;
+          let captionFields = splitCaption(captionText);
 
           if (working.stylesText.trim() || !captionText) {
             setCaptionOpen(true);
@@ -1172,6 +1253,11 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             if (draft.global_metadata !== undefined) setGlobalMetadata(draft.global_metadata);
             if (draft.vocal_details !== undefined) setVocalDetails(draft.vocal_details);
             if (draft.arrangement !== undefined) setArrangement(draft.arrangement);
+            captionFields = {
+              globalMetadata: draft.global_metadata ?? '',
+              vocalDetails: draft.vocal_details ?? '',
+              arrangement: draft.arrangement ?? '',
+            };
             if (draft.title?.trim()) {
               titleForRequest = draft.title.trim();
               setName(titleForRequest);
@@ -1183,6 +1269,51 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             if (draft.duration_seconds && working.duration.trim() === '') {
               durationForRequest = draft.duration_seconds;
               setDuration(String(draft.duration_seconds));
+            }
+          }
+
+          // Director/Studio is deliberately a two-pass process: first turn
+          // the user's short Styles brief into a complete song plan, then let
+          // the assistant audit that actual plan before Music3 sees it. This
+          // catches generic filler and mismatches with the final lyric tags;
+          // the manual caption editor still works without any assistant.
+          if (assistantReady && captionText) {
+            updateTempSongForClick?.(tempId, { stage: 'stageWritingCaption' });
+            const qualityDraft = await runAssistantWrite(
+              'prompt',
+              buildProducerQualityPassInstruction({
+                ...working,
+                lyrics: lyricsForRequest,
+                caption: captionText,
+                globalMetadata: captionFields.globalMetadata,
+                vocalDetails: captionFields.vocalDetails,
+                arrangement: captionFields.arrangement,
+              }),
+              {
+                ...working,
+                lyrics: lyricsForRequest,
+                caption: captionText,
+                globalMetadata: captionFields.globalMetadata,
+                vocalDetails: captionFields.vocalDetails,
+                arrangement: captionFields.arrangement,
+              },
+              ac.signal,
+            );
+            const revisedCaption = joinCaption(
+              qualityDraft.global_metadata ?? captionFields.globalMetadata,
+              qualityDraft.vocal_details ?? captionFields.vocalDetails,
+              qualityDraft.arrangement ?? captionFields.arrangement,
+            ).trim();
+            if (revisedCaption) {
+              captionText = revisedCaption;
+              captionFields = {
+                globalMetadata: qualityDraft.global_metadata ?? captionFields.globalMetadata,
+                vocalDetails: qualityDraft.vocal_details ?? captionFields.vocalDetails,
+                arrangement: qualityDraft.arrangement ?? captionFields.arrangement,
+              };
+              setGlobalMetadata(captionFields.globalMetadata);
+              setVocalDetails(captionFields.vocalDetails);
+              setArrangement(captionFields.arrangement);
             }
           }
 
@@ -1453,7 +1584,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               <button
                 type="button"
                 onClick={() => void transcribeCover()}
-                disabled={!coverFile || !asrModelId || coverBusy}
+                disabled={!coverFile || coverBusy}
                 className={`mt-3 ${CTA}`}
               >
                 {coverBusy ? <Loader2 size={14} className="animate-spin" /> : <FileAudio size={14} />}
@@ -1677,6 +1808,30 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     title={musicOccupiesGpu ? t('assistantWaitForMusic') : t('writeCaption')}
                   >
                     {assisting === 'prompt' ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} className="text-brand" />}
+                  </span>
+                )}
+                {assistantReady && captionOpen && caption.trim() && (
+                  <span
+                    role="button"
+                    tabIndex={assisting !== null || musicOccupiesGpu ? -1 : 0}
+                    aria-disabled={assisting !== null || musicOccupiesGpu}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (assisting !== null || musicOccupiesGpu) return;
+                      void runProducerQualityPass();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (assisting !== null || musicOccupiesGpu) return;
+                        void runProducerQualityPass();
+                      }
+                    }}
+                    className={`${ICON} ${(assisting !== null || musicOccupiesGpu) ? 'pointer-events-none opacity-40' : ''}`}
+                    title={t('producerQualityPass')}
+                  >
+                    {assisting === 'prompt' ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} className="text-brand" />}
                   </span>
                 )}
                 <ChevronDown size={15} className={`text-zinc-500 transition-transform ${captionOpen ? 'rotate-180' : ''}`} />

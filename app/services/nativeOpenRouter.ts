@@ -80,6 +80,18 @@ export async function transcribeWithNativeOpenRouter(modelId: string, file: File
   return text;
 }
 
+/** Uses the installed Whisper/Parakeet recogniser. Cover prefers this route so
+ * an OpenRouter catalog or key is never required just to read a reference. */
+export async function transcribeWithLocalRecognizer(file: File, language?: string): Promise<string> {
+  const response = await jsonRequest<{ text?: unknown }>('/v1/transcriptions/local', {
+    audio_base64: await base64For(file),
+    audio_format: audioFormatFor(file),
+    language: language?.trim() || undefined,
+  });
+  if (typeof response.text !== 'string') throw new Error('The local recogniser returned no transcription text.');
+  return response.text;
+}
+
 export async function generateCoverWithNativeOpenRouter(modelId: string, prompt: string): Promise<string> {
   const response = await jsonRequest<NativeOpenRouterResponse>('/v1/openrouter/covers', {
     model_id: modelId,
