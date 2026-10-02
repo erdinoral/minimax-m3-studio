@@ -426,6 +426,7 @@ pub fn draft_schema(required: &[&str]) -> Value {
     serde_json::json!({
         "type": "object",
         "properties": {
+            "style_brief": text,
             "lyrics": lyric,
             "global_metadata": text,
             "vocal_details": text,
@@ -869,5 +870,16 @@ neon on the wet road"));
         let schema = super::draft_schema(&["global_metadata"]);
         assert_eq!(schema["properties"]["global_metadata"]["minLength"], 40);
         assert_eq!(schema["required"][0], "global_metadata");
+    }
+
+    #[test]
+    fn every_required_key_is_a_property_the_schema_allows() {
+        for target in [AssistTarget::Style, AssistTarget::Lyrics, AssistTarget::Prompt, AssistTarget::All] {
+            let (_, required) = super::instructions(&request(target));
+            let schema = super::draft_schema(required);
+            for key in required {
+                assert!(schema["properties"].get(*key).is_some(), "'{key}' is required but additionalProperties forbids it");
+            }
+        }
     }
 }
