@@ -7,6 +7,7 @@ import { useI18n } from '../context/I18nContext';
 import { joinCaption, randomExample, splitCaption } from '../services/examples';
 import { transcribeWithSelectedProvider } from '../services/nativeOpenRouter';
 import { appendStylesToCaption, expandStylesForCaption, orderedStyleChips, recordStylesTextChips, styleTextHasChip, toggleStyleInText } from '../services/styleChips';
+import { ChoiceTabs } from './DevicePicker';
 
 /** mm-server rejects empty lyrics; instrumental = section tags, no sung words. */
 function instrumentalLyricsScaffold(durationSeconds: number): string {
@@ -368,6 +369,10 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverTranscript, setCoverTranscript] = useState('');
   const [coverBusy, setCoverBusy] = useState(false);
+  // inspired: new lyrics from a reference. restyle and melody work only on a
+  // library track: restyle keeps its lyrics, melody also keeps its audio codes.
+  const [coverKind, setCoverKind] = useState<'inspired' | 'restyle' | 'melody'>('inspired');
+  const [coverSource, setCoverSource] = useState<Song | null>(null);
   // Song language lock: auto = intent/lyrics rules; not UI/brief language alone.
   const [lyricsLanguage, setLyricsLanguageState] = useState<'auto' | 'tr' | 'en' | 'ru' | 'ja' | 'zh' | 'ko'>(() => {
     try {
@@ -455,6 +460,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       setMode('cover');
       setName(song.title || '');
       setCoverFile(null);
+      setCoverSource(song);
+      setCoverKind('inspired');
       setCoverTranscript((song.lyrics || '').trim());
       setAssistInstruction(`Inspired by "${song.title || 'this track'}". Keep a similar vibe; write original lyrics.`);
       if (song.audioUrl) {
@@ -477,6 +484,32 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       return;
     }
     if (mode === 'instrumental') setInstrumental(false);
+  };
+
+  const chooseCoverKind = (kind: 'inspired' | 'restyle' | 'melody') => {
+    setCoverKind(kind);
+    if (kind === 'inspired' || !coverSource) return;
+    const settings = (coverSource.generationParams ?? {}) as EngineDefaults;
+    setLyrics((coverSource.lyrics || '').trim());
+    setInstrumental(false);
+    if (settings.duration !== undefined) setDuration(String(settings.duration));
+    setName(`${coverSource.title || 'Cover'} (cover)`);
+    setGlobalMetadata('');
+    setVocalDetails('');
+    setArrangement('');
+  };
+
+  /** Extra rules for a caption written over a library track's own lyrics. */
+  const coverCaptionNote = () => {
+    if (mode !== 'cover' || coverKind === 'inspired' || !coverSource) return '';
+    const original = (coverSource.style || '').trim();
+    return [
+      'This is a cover of the user\'s own song: the lyrics above are final and must not change. Describe the song in the NEW style from Styles.',
+      coverKind === 'melody'
+        ? 'The melody, tempo, song structure and vocal line are fixed by the original recording. Keep the original BPM and key if the original caption states them; change only genre, instrumentation, sound design, vocal timbre and mix.'
+        : 'Align the arrangement with the lyric section tags; tempo may change if the new style calls for it.',
+      original ? `Original caption, for reference only (do not copy its genre):\n${original}` : '',
+    ].filter(Boolean).join('\n\n');
   };
 
   const buildCoverInstruction = (transcript: string, extra: string) => {
@@ -909,7 +942,12 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       return;
     }
     setCaptionOpen(true);
-    await askAssistant('prompt', buildAdvancedCaptionInstruction(), { clearCaption: true });
+    const note = coverCaptionNote();
+    await askAssistant(
+      'prompt',
+      note ? `${buildAdvancedCaptionInstruction()}\n\n${note}` : buildAdvancedCaptionInstruction(),
+      { clearCaption: true, ...(note ? { applyOnly: ['global_metadata', 'vocal_details', 'arrangement'] as ApplyField[] } : {}) },
+    );
   };
 
   const enhanceCaptionSection = async (section: 'global' | 'vocal' | 'arrangement') => {
@@ -1105,6 +1143,27 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const submit = async () => {
     if (!ready) { setError(t('downloadProfileFirst')); return; }
     if (activeJobCount >= 10) return;
+
+    if (mode === 'cover' && coverKind === 'melody' && coverSource) {
+      if (assisting) return;
+      if (!caption.trim()) { setError(t('coverMelodyNeedsCaption')); return; }
+      let captionText = appendStylesToCaption(caption, stylesText);
+      if (excludeStyles.trim()) captionText = `${captionText}\nExclude: ${excludeStyles.trim()}`.trim();
+      setError(null);
+      try {
+        const response = await fetch('/v1/music/replay', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ song_id: coverSource.id, caption: captionText, title: name.trim() || undefined }),
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(body?.error || String(response.status));
+        window.dispatchEvent(new CustomEvent('mm3:replay-queued', { detail: body.id }));
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
+      return;
+    }
 
     const treatAsInstrumental = mode === 'instrumental';
     if (treatAsInstrumental) {
@@ -1559,7 +1618,28 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
           {mode === 'cover' && (
             <Card title={t('coverMode')}>
-              <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">{t('coverModeHint')}</p>
+              {coverSource && (
+                <div className="mb-3">
+                  <p className="mb-1.5 truncate text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                    {t('coverSourceLabel')}: <span className="normal-case text-zinc-700 dark:text-zinc-200">{coverSource.title}</span>
+                  </p>
+                  <ChoiceTabs
+                    options={[
+                      { id: 'inspired' as const, label: t('coverKindInspired') },
+                      { id: 'restyle' as const, label: t('coverKindRestyle'), disabled: !(coverSource.lyrics || '').trim() },
+                      { id: 'melody' as const, label: t('coverKindMelody'), disabled: !coverSource.nativeReplayAvailable },
+                    ]}
+                    value={coverKind}
+                    onChange={chooseCoverKind}
+                  />
+                  {!coverSource.nativeReplayAvailable && (
+                    <p className="mt-1.5 text-[11px] leading-4 text-zinc-500">{t('coverMelodyUnavailable')}</p>
+                  )}
+                </div>
+              )}
+              <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+                {coverKind === 'restyle' ? t('coverKindRestyleHint') : coverKind === 'melody' ? t('coverKindMelodyHint') : t('coverModeHint')}
+              </p>
               <input
                 ref={coverFileInput}
                 type="file"
@@ -1568,9 +1648,13 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 onChange={event => {
                   setCoverFile(event.target.files?.[0] ?? null);
                   setCoverTranscript('');
+                  setCoverSource(null);
+                  setCoverKind('inspired');
                   event.target.value = '';
                 }}
               />
+              {coverKind === 'inspired' && (
+              <>
               <button
                 type="button"
                 onClick={() => coverFileInput.current?.click()}
@@ -1622,6 +1706,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   {assisting === 'all' ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
                   {assisting === 'all' ? `${t('assistantWriting')} · ${assistSeconds} ${t('secondsShort')}` : t('coverRewrite')}
                 </button>
+              )}
+              </>
               )}
             </Card>
           )}
@@ -1712,16 +1798,19 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             <AutoTextarea
               value={lyrics}
               minRows={10}
+              readOnly={mode === 'cover' && coverKind === 'melody'}
               onChange={event => setLyrics(event.target.value)}
               placeholder={mode === 'studio' ? t('lyricsKeywordsPlaceholder') : '[intro]\n\n[verse]\n…\n\n[chorus]\n…'}
               className={`${CONTROL} resize-none font-mono text-xs leading-5`}
             />
-            <p className="mt-2 text-[11px] leading-4 text-zinc-500">{mode === 'studio' ? t('lyricsHintAdvanced') : t('lyricsHint')}</p>
+            <p className="mt-2 text-[11px] leading-4 text-zinc-500">
+              {mode === 'cover' && coverKind === 'melody' ? t('coverMelodyLyricsLocked') : mode === 'studio' ? t('lyricsHintAdvanced') : t('lyricsHint')}
+            </p>
             {overBudget && <p className="mt-1 text-[11px] leading-4 text-rose-600 dark:text-rose-300">{t('promptTooLong')}</p>}
           </Card>
           )}
 
-          {(mode === 'studio' || mode === 'instrumental') && (
+          {(mode === 'studio' || mode === 'instrumental' || (mode === 'cover' && coverKind !== 'inspired')) && (
             <Card
               title={t('stylesSection')}
               actions={

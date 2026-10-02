@@ -268,6 +268,10 @@ struct ReplayMusicJobRequest {
     dit_cfg: Option<f64>,
     output_format: Option<String>,
     models: Option<Mm3ModelSelection>,
+    /// A new caption over the same codes: the melody, structure and vocal line
+    /// stay, the hidden states are re-derived under the new description.
+    caption: Option<String>,
+    title: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -4210,16 +4214,24 @@ async fn replay_music_job(
     let synth_request = prepare_replay_synthesis(replay, &request).map_err(|error| api_error(StatusCode::BAD_REQUEST, error))?;
     let caption = synth_request.get("caption").and_then(Value::as_str).unwrap_or_default().to_owned();
     let lyrics = synth_request.get("lyrics").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let restyled = request.caption.as_deref().is_some_and(|value| !value.trim().is_empty());
+    let title = request
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .or(source_title);
     let remote = state
         .music_server
         .submit(synth_request.clone())
         .await
         .map_err(|error| api_error(StatusCode::SERVICE_UNAVAILABLE, format!("the engine refused the job: {error}")))?;
     let mut generation_settings = synth_request.clone();
-    stamp_create_mode(&mut generation_settings, Some("replay"));
+    stamp_create_mode(&mut generation_settings, Some(if restyled { "cover" } else { "replay" }));
     let job = MusicJob {
         cover_prompt: None,
-        id: remote.id, engine_id: PRIMARY_MUSIC_ENGINE_ID.into(), title: source_title, status: MusicJobStatus::Queued,
+        id: remote.id, engine_id: PRIMARY_MUSIC_ENGINE_ID.into(), title, status: MusicJobStatus::Queued,
         dispatch: MusicJobDispatch::Local, phase: MusicJobPhase::Queued, caption, lyrics,
         duration_seconds: synth_request.get("duration").and_then(Value::as_f64).unwrap_or_default(), generation_settings,
         song: None, songs: vec![], message: "Submitted replay synthesis to mm-server. audio_codes are present, so the autoregressive LM stage is skipped.".into(),
@@ -4235,6 +4247,9 @@ fn prepare_replay_synthesis(mut replay: Value, overrides: &ReplayMusicJobRequest
     }
     if !object.get("audio_codes").and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty()) {
         return Err("replay_request has no audio_codes; it cannot skip the autoregressive LM stage".into());
+    }
+    if let Some(caption) = overrides.caption.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        object.insert("caption".into(), Value::String(caption.to_owned()));
     }
     if let Some(steps) = overrides.steps { if steps < 2 { return Err("steps must be at least 2".into()); } object.insert("steps".into(), Value::from(steps)); }
     if let Some(seed) = overrides.seed { object.insert("seed".into(), Value::from(seed)); }
@@ -5187,10 +5202,11 @@ mod tests {
 
     #[test]
     fn replay_synthesis_keeps_audio_codes_and_only_applies_confirmed_synthesis_overrides() {
-        let request = ReplayMusicJobRequest { song_id: None, replay_request: None, steps: Some(42), seed: Some(9), dit_cfg: Some(1.9), output_format: Some("wav24".into()), models: Some(Mm3ModelSelection { dit_model: Some("dit-q6.gguf".into()), ..Default::default() }) };
+        let request = ReplayMusicJobRequest { song_id: None, replay_request: None, steps: Some(42), seed: Some(9), dit_cfg: Some(1.9), output_format: Some("wav24".into()), models: Some(Mm3ModelSelection { dit_model: Some("dit-q6.gguf".into()), ..Default::default() }), caption: None, title: None };
         let replay = serde_json::json!({"caption":"night drive","lyrics":"[verse] hi","audio_codes":"1,2,3,4,5,6,7,8","lm_seed":123,"lm_cfg":1.5,"dit_cfg":1.7,"steps":30,"seed":1,"dit_model":"dit-q4.gguf"});
         let prepared = prepare_replay_synthesis(replay, &request).unwrap();
         assert_eq!(prepared["audio_codes"], "1,2,3,4,5,6,7,8");
+        assert_eq!(prepared["caption"], "night drive");
         assert_eq!(prepared["steps"], 42);
         assert_eq!(prepared["seed"], 9);
         assert_eq!(prepared["dit_cfg"], 1.9);
@@ -5201,7 +5217,23 @@ mod tests {
 
     #[test]
     fn replay_without_audio_codes_is_rejected_before_mm_server_submission() {
-        let request = ReplayMusicJobRequest { song_id: None, replay_request: None, steps: None, seed: None, dit_cfg: None, output_format: None, models: None };
+        let request = ReplayMusicJobRequest { song_id: None, replay_request: None, steps: None, seed: None, dit_cfg: None, output_format: None, models: None, caption: None, title: None };
         assert!(prepare_replay_synthesis(serde_json::json!({"caption":"c","lyrics":"l"}), &request).is_err());
+    }
+
+    /// A melody-keeping cover swaps only the description: the codes and the
+    /// lyrics they were sung to must reach the engine untouched.
+    #[test]
+    fn melody_cover_replaces_the_caption_and_keeps_codes_and_lyrics() {
+        let request = ReplayMusicJobRequest { song_id: None, replay_request: None, steps: None, seed: None, dit_cfg: None, output_format: None, models: None, caption: Some("  electro deep house, warm analog bass  ".into()), title: Some("Night Drive (cover)".into()) };
+        let replay = serde_json::json!({"caption":"night drive","lyrics":"[verse] hi","audio_codes":"1,2,3,4,5,6,7,8"});
+        let prepared = prepare_replay_synthesis(replay, &request).unwrap();
+        assert_eq!(prepared["caption"], "electro deep house, warm analog bass");
+        assert_eq!(prepared["lyrics"], "[verse] hi");
+        assert_eq!(prepared["audio_codes"], "1,2,3,4,5,6,7,8");
+
+        let blank = ReplayMusicJobRequest { caption: Some("   ".into()), title: None, ..request };
+        let prepared = prepare_replay_synthesis(serde_json::json!({"caption":"night drive","lyrics":"l","audio_codes":"1,2,3,4,5,6,7,8"}), &blank).unwrap();
+        assert_eq!(prepared["caption"], "night drive");
     }
 }

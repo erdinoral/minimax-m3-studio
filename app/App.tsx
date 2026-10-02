@@ -493,6 +493,15 @@ function AppContent() {
     nativeReplayPollersRef.current.set(jobId, poll);
   }, [refreshNativeLibrary, t]);
 
+  useEffect(() => {
+    const onQueued = (event: Event) => {
+      const jobId = (event as CustomEvent<string>).detail;
+      if (jobId) trackReplayJob(jobId);
+    };
+    window.addEventListener('mm3:replay-queued', onQueued);
+    return () => window.removeEventListener('mm3:replay-queued', onQueued);
+  }, [trackReplayJob]);
+
   const handleNativeReplay = useCallback((song: Song) => {
     if (!song.nativeReplayAvailable) return;
     setSongForReplay(song);
