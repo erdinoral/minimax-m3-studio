@@ -371,21 +371,12 @@ pub fn parse_draft(content: &str, required: &[&str]) -> Result<AssistDraft> {
         let sample: String = content.chars().take(220).collect();
         format!("the assistant returned invalid JSON. It answered: {sample}")
     })?;
-    // A model answers with what it finds natural: a string for the caption, and
-    // very often an array of lines for the lyrics. Both are the same lyric.
+    // A model answers with what it finds natural: a string for the caption,
+    // very often an array of lines for the lyrics, and sometimes an object of
+    // labelled parts for the brief - the local Gemma does that even with the
+    // schema asking for a string. All of them are the same text.
     let field = |key: &str| -> Option<String> {
-        let text = match value.get(key)? {
-            Value::String(text) => text.trim().to_owned(),
-            Value::Array(items) => items
-                .iter()
-                .filter_map(|item| item.as_str())
-                .collect::<Vec<_>>()
-                .join("
-")
-                .trim()
-                .to_owned(),
-            _ => return None,
-        };
+        let text = flatten_answer(value.get(key)?)?.trim().to_owned();
         (!text.is_empty()).then_some(text)
     };
 
@@ -409,6 +400,38 @@ pub fn parse_draft(content: &str, required: &[&str]) -> Result<AssistDraft> {
             .and_then(|value| value.as_u64().or_else(|| value.as_str().and_then(|text| text.trim().parse().ok())))
             .map(|seconds| seconds.clamp(10, 360) as u32),
     })
+}
+
+/// One answer field as text: an array is lines (the lyrics), an object is
+/// "label: value" lines with its labels read back from snake_case, and a list
+/// inside an object is one comma-separated value.
+fn flatten_answer(value: &Value) -> Option<String> {
+    flatten_part(value, "\n")
+}
+
+fn flatten_part(value: &Value, list_separator: &str) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.trim().to_owned()),
+        Value::Number(number) => Some(number.to_string()),
+        Value::Array(items) => Some(
+            items
+                .iter()
+                .filter_map(|item| flatten_part(item, list_separator))
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join(list_separator),
+        ),
+        Value::Object(map) => Some(
+            map.iter()
+                .filter_map(|(label, item)| {
+                    let text = flatten_part(item, ", ")?;
+                    (!text.is_empty()).then(|| format!("{}: {text}", label.replace('_', " ")))
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        _ => None,
+    }
 }
 
 /// The shape the answer must have, as a schema the server can enforce.
@@ -870,6 +893,18 @@ neon on the wet road"));
         let schema = super::draft_schema(&["global_metadata"]);
         assert_eq!(schema["properties"]["global_metadata"]["minLength"], 40);
         assert_eq!(schema["required"][0], "global_metadata");
+    }
+
+    #[test]
+    fn a_brief_answered_as_an_object_is_read_as_labelled_text() {
+        let answer = r#"{"style_brief":{"genre_and_subgenre":"electro deep house","instruments":["warm analog bass","female vocal"],"sonics":"Thick, saturated low end."}}"#;
+        let draft = super::parse_draft(answer, &["style_brief"]).unwrap();
+        assert_eq!(
+            draft.style_brief.as_deref(),
+            Some("genre and subgenre: electro deep house\ninstruments: warm analog bass, female vocal\nsonics: Thick, saturated low end.")
+        );
+        let lyrics = super::parse_draft(r#"{"lyrics":["[verse]","line one","line two"]}"#, &["lyrics"]).unwrap();
+        assert_eq!(lyrics.lyrics.as_deref(), Some("[verse]\nline one\nline two"));
     }
 
     #[test]
