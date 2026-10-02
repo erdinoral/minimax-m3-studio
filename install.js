@@ -2,11 +2,13 @@ const fs = require('fs')
 const path = require('path')
 
 // H3-style: build from this GitHub repo. Engine weights are the only big download.
-const PORTABLE_URL = 'https://github.com/timoncool/MiniMax-Music3-Studio/releases/download/v1.5.1/MiniMax-Music3-Studio-1.5.1-portable.zip'
+const PORTABLE_VERSION = '3.4.0'
+const PORTABLE_URL = `https://github.com/timoncool/MiniMax-Music3-Studio/releases/download/v${PORTABLE_VERSION}/MiniMax-Music3-Studio-${PORTABLE_VERSION}-portable.zip`
+const PORTABLE_ZIP = `cache/MiniMax-Music3-Studio-${PORTABLE_VERSION}-portable.zip`
 
 module.exports = async () => {
-  const engineReady = fs.existsSync(path.resolve(__dirname, 'resources/minimaxmusic-cpp/mm-server.exe'))
-    || fs.existsSync(path.resolve(__dirname, 'runtime/resources/minimaxmusic-cpp/mm-server.exe'))
+  // The engine with per-CUDA backend folders; an older flat engine is refreshed.
+  const engineReady = fs.existsSync(path.resolve(__dirname, 'resources/minimaxmusic-cpp/cuda13/ggml-cuda.dll'))
 
   const run = [
     {
@@ -23,23 +25,16 @@ module.exports = async () => {
         method: 'fs.download',
         params: {
           uri: PORTABLE_URL,
-          path: 'cache/MiniMax-Music3-Studio-portable.zip'
+          path: PORTABLE_ZIP
         }
       },
       {
         method: 'shell.run',
         params: {
-          message: 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pinokio-extract-engine.ps1'
+          message: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pinokio-extract-engine.ps1 -Zip ${PORTABLE_ZIP}`
         }
       }
     )
-  } else {
-    run.push({
-      method: 'shell.run',
-      params: {
-        message: 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pinokio-extract-engine.ps1'
-      }
-    })
   }
 
   run.push({

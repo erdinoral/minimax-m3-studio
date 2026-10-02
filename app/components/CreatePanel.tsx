@@ -60,6 +60,13 @@ type EngineDefaults = Partial<Record<string, number | string>>;
 
 type ProfileFiles = { lm_model: string; depth_model: string; cond_model: string; dit_model: string; vae_model: string };
 
+/** The five files a request names: the roles chosen here over the profile's own. */
+const completeModels = (chosen: Record<string, string>, profile?: ProfileFiles | null): Record<string, string> | null => {
+  if (Object.keys(chosen).length === 0) return null;
+  const merged: Record<string, string> = { ...(profile ?? {}), ...chosen };
+  return Object.keys(merged).length === 5 ? merged : null;
+};
+
 type SetupStatus = {
   ready?: boolean;
   profile_files?: ProfileFiles | null;
@@ -575,7 +582,10 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     if (name.trim()) request.title = name.trim();
     if (coverPrompt.trim()) request.cover_prompt = coverPrompt.trim();
     if (audioCodes.trim()) request.audio_codes = audioCodes.trim();
-    if (Object.keys(models).length === 5) request.models = models;
+    // A role left on the profile default is the profile's own file: the engine
+    // takes a set only whole, so a single changed role must still be sent.
+    const chosenModels = completeModels(models, setup?.profile_files);
+    if (chosenModels) request.models = chosenModels;
     return request;
   };
 
@@ -2085,7 +2095,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                       </div>
                     ))}
                   </div>
-                  {Object.keys(models).length > 0 && Object.keys(models).length < 5 && (
+                  {Object.keys(models).length > 0 && !completeModels(models, setup?.profile_files) && (
                     <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-300">{t('componentOverridePartial')}</p>
                   )}
                 </Stage>

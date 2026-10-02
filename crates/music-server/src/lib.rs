@@ -5,6 +5,7 @@ mod providers;
 mod assistant;
 mod assistant_runtime;
 mod audio_pcm;
+mod cuda_build;
 mod downloads;
 mod engine_runtime;
 mod lyrics_sync;
@@ -359,7 +360,8 @@ impl EngineOptions {
             max_seq: self.max_seq,
             disable_flash_attention: self.disable_flash_attention,
             split_cfg_forwards: self.split_cfg_forwards,
-            clamp_fp16: self.clamp_fp16,
+            clamp_fp16: self.clamp_fp16 || cuda_build::accumulates_in_fp16(),
+            cuda_folder: cuda_build::current().map(cuda_build::CudaBuild::folder),
         }
     }
 }
@@ -2661,7 +2663,7 @@ async fn compose_setup_status(state: &AppState, manager_status: model_manager::M
         // an engine that starts in three seconds and one that starts in ten
         // minutes. A spinner that says nothing for ten minutes is the same
         // screen as a spinner that is stuck.
-        let runtime_total = engine_runtime::ASSETS.iter().map(|asset| asset.bytes).sum::<u64>();
+        let runtime_total = engine_runtime::current_asset().bytes;
         let runtime_active = state.engine_runtime.downloader().active().await;
         fields.insert(
             "engine_runtime".into(),
@@ -4558,23 +4560,45 @@ impl MmServerClient {
             .collect())
     }
 
+    /// Sends a loopback request, retrying a dropped connection.
+    ///
+    /// A refused connect never reached the engine, so it is always safe to
+    /// repeat. A reset after sending is repeated only for reads (`read`): a
+    /// submit or cancel the engine may already have acted on must not run twice.
+    async fn send(&self, request: impl Fn() -> reqwest::RequestBuilder, read: bool) -> anyhow::Result<reqwest::Response> {
+        const ATTEMPTS: u32 = 3;
+        let mut attempt = 1;
+        loop {
+            match request().send().await {
+                Ok(response) => return Ok(response),
+                Err(error) if attempt < ATTEMPTS && (error.is_connect() || (read && connection_dropped(&error))) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(300 * u64::from(attempt))).await;
+                    attempt += 1;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
     async fn submit(&self, request: Value) -> anyhow::Result<MmServerSubmitResponse> {
-        self.json_response(self.http.post(self.url("/synth")).json(&request).send().await?)
-            .await
+        let response = self.send(|| self.http.post(self.url("/synth")).json(&request), false).await?;
+        self.json_response(response).await
     }
 
     async fn job(&self, job_id: &str) -> anyhow::Result<MmServerJobResponse> {
-        self.json_response(self.http.get(self.url("/job")).query(&[("id", job_id)]).send().await?)
-            .await
+        let response = self.send(|| self.http.get(self.url("/job")).query(&[("id", job_id)]), true).await?;
+        self.json_response(response).await
     }
 
     async fn cancel(&self, job_id: &str) -> anyhow::Result<MmServerJobResponse> {
-        self.json_response(self.http.post(self.url("/job")).query(&[("id", job_id), ("cancel", "1")]).send().await?)
-            .await
+        let response =
+            self.send(|| self.http.post(self.url("/job")).query(&[("id", job_id), ("cancel", "1")]), false).await?;
+        self.json_response(response).await
     }
 
     async fn result(&self, job_id: &str) -> anyhow::Result<MmServerResultResponse> {
-        let response = self.http.get(self.url("/job")).query(&[("id", job_id), ("result", "1")]).send().await?;
+        let response =
+            self.send(|| self.http.get(self.url("/job")).query(&[("id", job_id), ("result", "1")]), true).await?;
         let status = response.status();
         if !status.is_success() { anyhow::bail!("mm-server returned {status}: {}", response.text().await?); }
         let content_type = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).unwrap_or("").to_owned();
@@ -4593,6 +4617,23 @@ impl MmServerClient {
     fn url(&self, path: &str) -> String {
         format!("{}{path}", self.base_url)
     }
+}
+
+/// Whether a request died because the connection was reset, aborted or broken.
+fn connection_dropped(error: &reqwest::Error) -> bool {
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(current) = source {
+        if let Some(io) = current.downcast_ref::<std::io::Error>() {
+            if matches!(
+                io.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::BrokenPipe
+            ) {
+                return true;
+            }
+        }
+        source = current.source();
+    }
+    false
 }
 
 fn initial_configuration() -> StudioConfiguration {

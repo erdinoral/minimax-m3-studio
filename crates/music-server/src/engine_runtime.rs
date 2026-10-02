@@ -1,11 +1,12 @@
 //! The CUDA libraries the music engine is linked against.
 //!
-//! `mm-server.exe` imports `ggml.dll`, which imports `ggml-cuda.dll`, which
-//! imports `cublas64_13.dll`, which imports `cublasLt64_13.dll`. Every one of
-//! those is a static import, so Windows resolves the whole chain before the
-//! engine's own code runs: a missing cuBLAS is not a backend that falls back to
-//! the processor, it is a process that never starts, and the loader says so in
-//! a modal dialog nobody in the studio can catch.
+//! The engine loads one of two CUDA backends at run time, `cuda13\ggml-cuda.dll`
+//! or `cuda12\ggml-cuda.dll`, whichever the card and its driver run (see
+//! `cuda_build`); a single-backend developer build keeps its `ggml-cuda.dll`
+//! beside the executable. Each imports its own cuBLAS, `cublas64_13.dll` or
+//! `cublas64_12.dll`, which imports `cublasLt64_1x.dll`. The loader resolves
+//! them from the executable's folder, so they go beside `mm-server.exe`, and
+//! the two majors never clash by name. A missing cuBLAS fails the backend load.
 //!
 //! The two libraries are 512 MB unpacked, which is four times the rest of the
 //! installer, so they are not shipped - they are fetched from NVIDIA's own
@@ -18,16 +19,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
+use crate::cuda_build::{self, CudaBuild};
 use crate::downloads::{Asset, AssetKind, Downloader};
 
-/// The CUDA major version `ggml-cuda.dll` was built against. It is in the
-/// library file names themselves - `cublas64_13.dll` - so a rebuild of the
-/// engine on a different CUDA is a change here as well, and the dependency
-/// check in the release build is what catches it.
-pub const CUDA_MAJOR: &str = "13";
-
-/// The libraries, by file name, exactly as the engine imports them.
-pub const REQUIRED_LIBRARIES: [&str; 2] = ["cublas64_13.dll", "cublasLt64_13.dll"];
+/// The libraries of each build, by file name, exactly as its ggml-cuda.dll
+/// imports them. The CUDA major is part of the name, so a rebuild on another
+/// major is a change here, and the dependency check below catches it.
+pub const CUDA13_LIBRARIES: [&str; 2] = ["cublas64_13.dll", "cublasLt64_13.dll"];
+pub const CUDA12_LIBRARIES: [&str; 2] = ["cublas64_12.dll", "cublasLt64_12.dll"];
 
 /// The Visual C++ runtime the engine and ggml are compiled against, by the
 /// names in their import tables.
@@ -37,7 +36,10 @@ pub const VC_RUNTIME_LIBRARIES: [&str; 4] =
 /// Microsoft's own permanent link to the current x64 redistributable.
 const VC_REDIST_URL: &str = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
 
-pub const ASSETS: &[Asset] = &[Asset {
+#[cfg(test)]
+pub const ASSETS: &[Asset] = &[CUBLAS13, CUBLAS12];
+
+const CUBLAS13: Asset = Asset {
     id: "engine-cuda-cublas",
     label: "NVIDIA cuBLAS 13.5",
     kind: AssetKind::Runtime,
@@ -53,10 +55,44 @@ pub const ASSETS: &[Asset] = &[Asset {
     // deployment guide recommends.
     unzip_into: None,
     marker: "cublasLt64_13.dll",
-    pick: &REQUIRED_LIBRARIES,
+    pick: &CUDA13_LIBRARIES,
     vram_gb: None,
     note: "The linear algebra the engine's CUDA backend is linked against. Without it the engine cannot start at all.",
-}];
+};
+
+const CUBLAS12: Asset = Asset {
+    id: "engine-cuda12-cublas",
+    label: "NVIDIA cuBLAS 12.9",
+    kind: AssetKind::Runtime,
+    // The cuBLAS of the CUDA 12.9 toolkit the CUDA 12 backend is built with.
+    url: "https://developer.download.nvidia.com/compute/cuda/redist/libcublas/windows-x86_64/libcublas-windows-x86_64-12.9.1.4-archive.zip",
+    relative_path: "cuda12-cublas.zip",
+    bytes: 549_755_186,
+    unzip_into: None,
+    marker: "cublasLt64_12.dll",
+    pick: &CUDA12_LIBRARIES,
+    vram_gb: None,
+    note: "The linear algebra of the engine's CUDA 12 backend, for cards CUDA 13 dropped and older drivers.",
+};
+
+/// The cuBLAS a CUDA build loads.
+pub fn cublas_asset(build: CudaBuild) -> &'static Asset {
+    match build {
+        CudaBuild::Cuda13 => &CUBLAS13,
+        CudaBuild::Cuda12 => &CUBLAS12,
+    }
+}
+
+/// The build this machine runs; CUDA 13 when no card answers, which is what a
+/// developer build without the folders links against.
+fn machine_build() -> CudaBuild {
+    cuda_build::current().unwrap_or(CudaBuild::Cuda13)
+}
+
+/// The cuBLAS this machine's engine needs.
+pub fn current_asset() -> &'static Asset {
+    cublas_asset(machine_build())
+}
 
 /// The engine's downloadable runtime.
 pub struct EngineRuntime {
@@ -95,11 +131,11 @@ impl EngineRuntime {
     /// Toolkit installation - downloads nothing: the engine inherits that path
     /// and finds them there.
     pub fn missing(&self) -> Vec<&'static Asset> {
-        ASSETS
-            .iter()
-            .filter(|asset| !self.downloader.is_installed(asset))
-            .filter(|asset| !asset.pick.iter().all(|library| is_on_the_search_path(library)))
-            .collect()
+        let asset = current_asset();
+        if self.downloader.is_installed(asset) || asset.pick.iter().all(|library| is_on_the_search_path(library)) {
+            return Vec::new();
+        }
+        vec![asset]
     }
 
     pub fn missing_bytes(&self) -> u64 {
@@ -304,12 +340,16 @@ mod tests {
     /// archive. A typo here is a download that finishes and changes nothing.
     #[test]
     fn every_imported_library_is_picked_out_of_the_archive() {
-        for library in REQUIRED_LIBRARIES {
-            assert!(library.contains(CUDA_MAJOR), "{library} does not name CUDA {CUDA_MAJOR}");
-            assert!(
-                ASSETS.iter().any(|asset| asset.pick.contains(&library)),
-                "{library} is imported by the engine but never taken out of an archive"
-            );
+        for (build, libraries, major) in
+            [(CudaBuild::Cuda13, CUDA13_LIBRARIES, "13"), (CudaBuild::Cuda12, CUDA12_LIBRARIES, "12")]
+        {
+            for library in libraries {
+                assert!(library.contains(major), "{library} does not name CUDA {major}");
+                assert!(
+                    cublas_asset(build).pick.contains(&library),
+                    "{library} is imported by the engine but never taken out of an archive"
+                );
+            }
         }
     }
 
@@ -345,7 +385,12 @@ mod tests {
             return;
         }
         let missing = unresolved_dependencies(&bundle, "mm-server.exe").expect("read the bundle's import tables");
-        let handled: Vec<&str> = REQUIRED_LIBRARIES.iter().chain(VC_RUNTIME_LIBRARIES.iter()).copied().collect();
+        let handled: Vec<&str> = CUDA13_LIBRARIES
+            .iter()
+            .chain(CUDA12_LIBRARIES.iter())
+            .chain(VC_RUNTIME_LIBRARIES.iter())
+            .copied()
+            .collect();
         let unexpected: Vec<&String> = missing
             .iter()
             .filter(|name| !handled.iter().any(|library| library.eq_ignore_ascii_case(name)))
@@ -381,12 +426,12 @@ mod tests {
     fn the_libraries_count_as_installed_only_beside_the_engine() {
         let root = std::env::temp_dir().join(format!("engine-runtime-{}", uuid::Uuid::now_v7()));
         let runtime = EngineRuntime::new(&root);
-        let asset = ASSETS.first().expect("one asset");
+        let asset = current_asset();
         assert!(!runtime.downloader().is_installed(asset));
         assert_eq!(runtime.library_dir(), root);
 
         std::fs::create_dir_all(runtime.library_dir()).unwrap();
-        for library in REQUIRED_LIBRARIES {
+        for library in asset.pick {
             std::fs::write(runtime.library_dir().join(library), b"x").unwrap();
         }
         assert!(runtime.downloader().is_installed(asset));
