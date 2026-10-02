@@ -4,9 +4,11 @@ import { Song } from '../types';
 import { useI18n } from '../context/I18nContext';
 import { openExternal } from '../services/externalLinks';
 import { apiUrl } from '../services/apiBase';
+import { openExtendSong } from '../services/openExtend';
 import {
     Clapperboard,
     Edit3,
+    FastForward,
     Layers,
     Repeat,
     ListPlus,
@@ -260,6 +262,13 @@ export const SongDropdownMenu: React.FC<SongDropdownMenuProps> = ({
                     icon={<Repeat size={14} />}
                     label={t('replayTitle')}
                     onClick={() => handleAction(onReplayMusic)}
+                />
+            )}
+            {song.nativeReplayAvailable && (
+                <MenuItem
+                    icon={<FastForward size={14} />}
+                    label={t('extendTitle')}
+                    onClick={() => handleAction(() => openExtendSong(song))}
                 />
             )}
 

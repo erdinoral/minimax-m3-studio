@@ -274,6 +274,24 @@ struct ReplayMusicJobRequest {
     title: Option<String>,
 }
 
+/// The LM's semantic frame rate: one code frame per 40 ms of music.
+const MM3_FRAME_RATE: f64 = 25.0;
+/// The engine's frame cap (9000 frames), in seconds.
+const MM3_MAX_SECONDS: f64 = 360.0;
+
+#[derive(Debug, Deserialize)]
+struct ExtendMusicJobRequest {
+    song_id: String,
+    /// Seconds of the source kept before the continuation takes over; the
+    /// whole song when absent.
+    from_seconds: Option<f64>,
+    /// Seconds of new music after the kept part.
+    extra_seconds: f64,
+    /// Lyrics for the new part, appended to the song's own.
+    lyrics: Option<String>,
+    title: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct PersistedStudioSettings {
     #[serde(default)]
@@ -608,6 +626,7 @@ pub async fn serve() -> anyhow::Result<()> {
         .route("/v1/local-models/music", get(local_music_model_catalog))
         .route("/v1/music/jobs", get(list_music_jobs).post(create_music_job))
         .route("/v1/music/replay", post(replay_music_job))
+        .route("/v1/music/extend", post(extend_music_job))
         .route(
             "/v1/music/jobs/{job_id}",
             get(music_job_status).post(cancel_music_job),
@@ -4266,6 +4285,98 @@ fn prepare_replay_synthesis(mut replay: Value, overrides: &ReplayMusicJobRequest
     Ok(replay)
 }
 
+async fn extend_music_job(
+    State(state): State<AppState>,
+    Json(request): Json<ExtendMusicJobRequest>,
+) -> Result<(StatusCode, Json<MusicJob>), (StatusCode, Json<ApiError>)> {
+    let _gpu = state.gpu_handoff.lock().await;
+    if !state.music_server.health().await {
+        restart_engine_under_gpu_lock(&state).await.map_err(|error| api_error(StatusCode::SERVICE_UNAVAILABLE, error))?;
+    }
+    if selected_local_music_engine(&*state.configuration.read().await).as_deref() != Some(PRIMARY_MUSIC_ENGINE_ID) {
+        return Err(api_error(StatusCode::CONFLICT, "Extending a song requires the local minimaxmusic-cpp engine.".into()));
+    }
+    // An engine without the field would ignore it and write a new song.
+    let props = state.music_server.props().await.map_err(|error| api_error(StatusCode::SERVICE_UNAVAILABLE, error.to_string()))?;
+    let continues = props
+        .get("features")
+        .and_then(Value::as_array)
+        .is_some_and(|features| features.iter().any(|feature| feature.as_str() == Some("continue_codes")));
+    if !continues {
+        return Err(api_error(StatusCode::CONFLICT, "This engine build cannot continue a song; build it with engines/patches applied.".into()));
+    }
+    let song = state.library.get_song(&request.song_id).map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "Song not found.".into()))?;
+    let replay = song.replay_request.ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "This song has no MiniMax Music3 codes to continue from.".into()))?;
+    let synth_request = prepare_extend_synthesis(replay, &request).map_err(|error| api_error(StatusCode::BAD_REQUEST, error))?;
+    let caption = synth_request.get("caption").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let lyrics = synth_request.get("lyrics").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let title = request
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("{} (extended)", song.title));
+    let remote = state
+        .music_server
+        .submit(synth_request.clone())
+        .await
+        .map_err(|error| api_error(StatusCode::SERVICE_UNAVAILABLE, format!("the engine refused the job: {error}")))?;
+    let mut generation_settings = synth_request.clone();
+    if let Some(fields) = generation_settings.as_object_mut() {
+        fields.remove("continue_codes");
+    }
+    stamp_create_mode(&mut generation_settings, Some("extend"));
+    let job = MusicJob {
+        cover_prompt: None,
+        id: remote.id, engine_id: PRIMARY_MUSIC_ENGINE_ID.into(), title: Some(title), status: MusicJobStatus::Queued,
+        dispatch: MusicJobDispatch::Local, phase: MusicJobPhase::Queued, caption, lyrics,
+        duration_seconds: synth_request.get("duration").and_then(Value::as_f64).unwrap_or_default(), generation_settings,
+        song: None, songs: vec![], message: "Submitted a continuation to mm-server: the kept frames are teacher-forced and the LM samples on from there.".into(),
+    };
+    state.jobs.write().await.insert(job.id.clone(), job.clone());
+    Ok((StatusCode::ACCEPTED, Json(job)))
+}
+
+/// Turns a song's replay request into a continuation: the codes up to the cut
+/// become `continue_codes`, the duration grows by the new part, and the end of
+/// audio token stays masked for most of it so a song cut inside its outro does
+/// not end again at once.
+fn prepare_extend_synthesis(mut replay: Value, request: &ExtendMusicJobRequest) -> Result<Value, String> {
+    let object = replay.as_object_mut().ok_or("replay_request must be a JSON object")?;
+    for required in ["caption", "lyrics"] {
+        if !object.get(required).and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty()) { return Err(format!("replay_request has no {required}")); }
+    }
+    let audio_codes = match object.remove("audio_codes") {
+        Some(Value::String(codes)) if !codes.trim().is_empty() => codes,
+        _ => return Err("replay_request has no audio_codes to continue from".into()),
+    };
+    let codes: Vec<&str> = audio_codes.split(',').collect();
+    if codes.len() < 16 || codes.len() % 8 != 0 { return Err("audio_codes need 8 codes per frame, at least 2 frames".into()); }
+    // Frame 0 only feeds the first LM step: n code frames are n - 1 frames of music.
+    let music_frames = codes.len() / 8 - 1;
+    let kept = match request.from_seconds {
+        Some(seconds) if !seconds.is_finite() || seconds < 1.0 => return Err("from_seconds must be at least 1".into()),
+        Some(seconds) => ((seconds * MM3_FRAME_RATE).round() as usize).min(music_frames),
+        None => music_frames,
+    };
+    let kept_seconds = kept as f64 / MM3_FRAME_RATE;
+    if !request.extra_seconds.is_finite() || request.extra_seconds < 5.0 { return Err("extra_seconds must be at least 5".into()); }
+    let duration = kept_seconds + request.extra_seconds;
+    if duration > MM3_MAX_SECONDS { return Err(format!("the extended song would run {duration:.0} s; the engine stops at {MM3_MAX_SECONDS:.0} s")); }
+
+    if let Some(extra) = request.lyrics.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        let lyrics = object.get("lyrics").and_then(Value::as_str).unwrap_or_default().trim_end().to_owned();
+        object.insert("lyrics".into(), Value::String(format!("{lyrics}\n\n{extra}")));
+    }
+    object.insert("continue_codes".into(), Value::String(codes[..(kept + 1) * 8].join(",")));
+    object.insert("continue_min".into(), Value::from((request.extra_seconds * 0.6).floor()));
+    object.insert("duration".into(), Value::from(duration));
+    object.insert("lm_batch_size".into(), Value::from(1));
+    Ok(replay)
+}
+
 async fn create_openrouter_music_job(state: AppState, request: CreateMusicJobRequest, model_id: Option<String>) -> (StatusCode, Json<MusicJob>) {
     let engine_id = "openrouter".to_owned();
     let model_id = match model_id.filter(|model| !model.trim().is_empty()) {
@@ -5213,6 +5324,36 @@ mod tests {
         assert_eq!(prepared["output_format"], "wav24");
         assert_eq!(prepared["dit_model"], "dit-q6.gguf");
         assert_eq!(prepared["lm_seed"], 123);
+    }
+
+    #[test]
+    fn extend_keeps_the_codes_up_to_the_cut_and_grows_the_duration() {
+        let frames: Vec<String> = (0..101).map(|frame| format!("{frame},1,2,3,4,5,6,7")).collect();
+        let replay = serde_json::json!({"caption":"night drive","lyrics":"[verse] hi\n","audio_codes":frames.join(","),"duration":4.0,"seed":7,"lm_seed":9});
+        let request = ExtendMusicJobRequest { song_id: "s".into(), from_seconds: Some(2.0), extra_seconds: 30.0, lyrics: Some(" [outro] bye ".into()), title: None };
+        let prepared = prepare_extend_synthesis(replay.clone(), &request).unwrap();
+        assert!(prepared.get("audio_codes").is_none());
+        let kept: Vec<&str> = prepared["continue_codes"].as_str().unwrap().split(',').collect();
+        assert_eq!(kept.len(), 51 * 8);
+        assert_eq!(kept[50 * 8], "50");
+        assert_eq!(prepared["duration"], 32.0);
+        assert_eq!(prepared["continue_min"], 18.0);
+        assert_eq!(prepared["lm_batch_size"], 1);
+        assert_eq!(prepared["lyrics"], "[verse] hi\n\n[outro] bye");
+        assert_eq!(prepared["seed"], 7);
+
+        let whole = ExtendMusicJobRequest { from_seconds: None, lyrics: None, ..request };
+        let prepared = prepare_extend_synthesis(replay.clone(), &whole).unwrap();
+        assert_eq!(prepared["continue_codes"].as_str().unwrap().split(',').count(), 101 * 8);
+        assert_eq!(prepared["duration"], 34.0);
+        assert_eq!(prepared["lyrics"], "[verse] hi\n");
+
+        let too_long = ExtendMusicJobRequest { extra_seconds: 400.0, ..whole };
+        assert!(prepare_extend_synthesis(replay.clone(), &too_long).is_err());
+        let too_short = ExtendMusicJobRequest { extra_seconds: 2.0, ..too_long };
+        assert!(prepare_extend_synthesis(replay, &too_short).is_err());
+        let no_codes = ExtendMusicJobRequest { extra_seconds: 30.0, ..too_short };
+        assert!(prepare_extend_synthesis(serde_json::json!({"caption":"c","lyrics":"l"}), &no_codes).is_err());
     }
 
     #[test]

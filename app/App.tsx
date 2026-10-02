@@ -8,6 +8,7 @@ import { LibraryView } from './components/LibraryView';
 import { CreatePlaylistModal, AddToPlaylistModal } from './components/PlaylistModals';
 import { CoverRegenModal } from './components/CoverRegenModal';
 import { ReplayModal } from './components/ReplayModal';
+import { ExtendModal } from './components/ExtendModal';
 import { VideoGeneratorModal } from './components/VideoGeneratorModal';
 import { SettingsModal } from './components/SettingsModal';
 import { SupportModal } from './components/SupportModal';
@@ -326,6 +327,7 @@ function AppContent() {
   // and RightSidebar. Updates songs.cover_url via /api/songs/:id/regen-cover.
   const [songForCoverRegen, setSongForCoverRegen] = useState<Song | null>(null);
   const [songForReplay, setSongForReplay] = useState<Song | null>(null);
+  const [songForExtend, setSongForExtend] = useState<Song | null>(null);
   const [songForVideo, setSongForVideo] = useState<Song | null>(null);
 
   // Settings Modal
@@ -501,6 +503,15 @@ function AppContent() {
     window.addEventListener('mm3:replay-queued', onQueued);
     return () => window.removeEventListener('mm3:replay-queued', onQueued);
   }, [trackReplayJob]);
+
+  useEffect(() => {
+    const onExtend = (event: Event) => {
+      const song = (event as CustomEvent<Song>).detail;
+      if (song?.nativeReplayAvailable) setSongForExtend(song);
+    };
+    window.addEventListener('mm3:extend-song', onExtend);
+    return () => window.removeEventListener('mm3:extend-song', onExtend);
+  }, []);
 
   const handleNativeReplay = useCallback((song: Song) => {
     if (!song.nativeReplayAvailable) return;
@@ -1720,6 +1731,13 @@ function AppContent() {
         <ReplayModal
           song={songForReplay}
           onClose={() => setSongForReplay(null)}
+          onQueued={trackReplayJob}
+        />
+      )}
+      {songForExtend && (
+        <ExtendModal
+          song={songForExtend}
+          onClose={() => setSongForExtend(null)}
           onQueued={trackReplayJob}
         />
       )}

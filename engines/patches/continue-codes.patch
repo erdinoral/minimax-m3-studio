@@ -1,0 +1,227 @@
+diff --git a/src/pipeline.cpp b/src/pipeline.cpp
+index ca152ef..b707afb 100644
+--- a/src/pipeline.cpp
++++ b/src/pipeline.cpp
+@@ -482,7 +482,77 @@ static PipelineStatus ar_stage(MM3Pipeline *                     p,
+     std::vector<float> seq0, seq1;
+     std::vector<float> batch_embeds((size_t) 2 * N * H);
+ 
+-    for (int frame_index = 0; frame_index <= max_frames; frame_index++) {
++    // Continuation: the given frames are teacher-forced on both CFG streams
++    // and recorded as the start of the song, the way replay derives its
++    // hiddens; sampling then carries on from the last of them.
++    int start_frame = 0;
++    int end_floor   = 0;
++    if (!req.continue_codes.empty()) {
++        std::vector<int> prefix = codes_parse(req.continue_codes);
++        if (prefix.empty()) {
++            return PIPELINE_FAILED;
++        }
++        if (N != 1) {
++            fprintf(stderr, "[AR] FATAL: continue_codes needs lm_batch_size 1\n");
++            return PIPELINE_FAILED;
++        }
++        int m = (int) (prefix.size() / 8);
++        if (m - 1 >= max_frames) {
++            fprintf(stderr, "[AR] FATAL: continue_codes carry %d frames, the duration allows %d\n", m - 1, max_frames);
++            return PIPELINE_FAILED;
++        }
++        std::vector<float> embeds((size_t) m * H), emb(H), all_hidden((size_t) m * H);
++        float              scale = 1.0f / sqrtf((float) DepthDecoder::CODEBOOKS);
++        for (int t = 0; t < m; t++) {
++            const int * f = prefix.data() + (size_t) t * 8;
++            mm3_lm_embed_row(lm, f[0] + MM3_AUDIO_CODE_OFFSET, emb.data());
++            for (int cb = 1; cb <= NC; cb++) {
++                const float * row = depth->audio_embedding_row(cb, f[cb]);
++                for (int j = 0; j < H; j++) {
++                    emb[j] += row[j];
++                }
++            }
++            for (int j = 0; j < H; j++) {
++                emb[j] *= scale;
++            }
++            memcpy(embeds.data() + (size_t) t * H, emb.data(), (size_t) H * sizeof(float));
++        }
++        qw3lm_forward(lm, nullptr, m, 0, cur_logits.data(), embeds.data(), nullptr, all_hidden.data());
++        qw3lm_forward(lm, nullptr, m, N, cur_logits.data() + (size_t) N * V, embeds.data(),
++                      cur_hidden.data() + (size_t) N * H);
++        memcpy(cur_hidden.data(), all_hidden.data() + (size_t) (m - 1) * H, (size_t) H * sizeof(float));
++
++        std::vector<float> seq8((size_t) 8 * H), hid8((size_t) 8 * H), dlogits(DepthDecoder::VOCAB);
++        for (int k = 1; k < m; k++) {
++            if (is_cancelled(cancel)) {
++                return PIPELINE_CANCELLED;
++            }
++            const int *   f  = prefix.data() + (size_t) k * 8;
++            const float * hk = all_hidden.data() + (size_t) (k - 1) * H;
++            memcpy(seq8.data(), hk, (size_t) H * sizeof(float));
++            mm3_lm_embed_row(lm, f[0] + MM3_AUDIO_CODE_OFFSET, seq8.data() + H);
++            for (int cb = 1; cb < NC; cb++) {
++                memcpy(seq8.data() + (size_t) (1 + cb) * H, depth->audio_embedding_row(cb, f[cb]),
++                       (size_t) H * sizeof(float));
++            }
++            if (!depth->forward(seq8.data(), 8, hid8.data(), dlogits.data())) {
++                return PIPELINE_FAILED;
++            }
++            if (hiddens_out) {
++                (*hiddens_out)[0].insert((*hiddens_out)[0].end(), hk, hk + H);
++                (*hiddens_out)[0].insert((*hiddens_out)[0].end(), hid8.begin() + H, hid8.end());
++            }
++        }
++        codes_out[0] = prefix;
++        frames[0]    = m - 1;
++        start_frame  = m;
++        end_floor    = m + (int) (req.continue_min * FRAME_RATE);
++        fprintf(stderr, "[AR] Continuing from %d frames (%.1fs of music), at least %.1fs more\n", m - 1,
++                (float) (m - 1) / FRAME_RATE, req.continue_min);
++    }
++    std::vector<int> allowed_no_end(allowed.begin(), allowed.end() - 1);
++
++    for (int frame_index = start_frame; frame_index <= max_frames; frame_index++) {
+         if (is_cancelled(cancel)) {
+             return PIPELINE_CANCELLED;
+         }
+@@ -490,7 +560,8 @@ static PipelineStatus ar_stage(MM3Pipeline *                     p,
+         bool all_done = true;
+         for (int i = 0; i < N; i++) {
+             sampled[i] = mm3_cfg_sample(cur_logits.data() + (size_t) i * V, cur_logits.data() + (size_t) (N + i) * V,
+-                                        allowed, req.lm_cfg, req.lm_top_k, rng[i]);
++                                        frame_index < end_floor ? allowed_no_end : allowed, req.lm_cfg, req.lm_top_k,
++                                        rng[i]);
+             if (!done[i] && sampled[i] == MM3_AUDIO_END) {
+                 fprintf(stderr, "[AR] Song %d: end of audio token at frame %d\n", i, frame_index);
+                 done[i] = true;
+@@ -711,6 +782,9 @@ PipelineStatus pipeline_generate(MM3Pipeline *                     p,
+                 codes_out->assign(1, req.audio_codes);
+             }
+         } else {
++            if (!req.continue_codes.empty()) {
++                N = 1;
++            }
+             frame_hiddens.resize(N);
+             std::vector<std::vector<int>> codes(N);
+             PipelineStatus st = ar_stage(p, lm, depth, tok, req, cancel, N, &frame_hiddens, codes, n_frames);
+diff --git a/src/request.cpp b/src/request.cpp
+index a65e591..8819319 100644
+--- a/src/request.cpp
++++ b/src/request.cpp
+@@ -28,7 +28,9 @@ void request_init(MM3Request * r) {
+     r->lm_batch_size    = 1;
+     r->synth_batch_size = 1;
+     r->audio_codes.clear();
+-    r->dit_cfg = 1.7f;
++    r->continue_codes.clear();
++    r->continue_min = 0.0f;
++    r->dit_cfg      = 1.7f;
+ 
+     r->peak_clip     = 10;
+     r->output_format = OUTPUT_FORMAT_MP3;
+@@ -105,6 +107,12 @@ static bool request_parse_obj(yyjson_val * obj, MM3Request * r) {
+     if ((v = yyjson_obj_get(obj, "audio_codes")) && yyjson_is_str(v)) {
+         r->audio_codes = yyjson_get_str(v);
+     }
++    if ((v = yyjson_obj_get(obj, "continue_codes")) && yyjson_is_str(v)) {
++        r->continue_codes = yyjson_get_str(v);
++    }
++    if ((v = yyjson_obj_get(obj, "continue_min")) && yyjson_is_num(v)) {
++        r->continue_min = (float) yyjson_get_num(v);
++    }
+     if ((v = yyjson_obj_get(obj, "dit_cfg")) && yyjson_is_num(v)) {
+         r->dit_cfg = (float) yyjson_get_num(v);
+     }
+@@ -242,6 +250,8 @@ std::string request_to_json(const MM3Request * r, bool sparse) {
+     put_i("lm_batch_size", r->lm_batch_size, def.lm_batch_size);
+     put_i("synth_batch_size", r->synth_batch_size, def.synth_batch_size);
+     put_str("audio_codes", r->audio_codes, def.audio_codes);
++    put_str("continue_codes", r->continue_codes, def.continue_codes);
++    put_f("continue_min", r->continue_min, def.continue_min);
+     put_f("dit_cfg", r->dit_cfg, def.dit_cfg);
+     put_f("flow_shift", r->flow_shift, def.flow_shift);
+     put_i("peak_clip", r->peak_clip, def.peak_clip);
+@@ -310,6 +320,8 @@ void request_resolve_lm_seed(MM3Request * r) {
+ MM3Request request_replay(const MM3Request & base, const std::string & codes, int song, int variation) {
+     MM3Request r       = base;
+     r.audio_codes      = codes;
++    r.continue_codes.clear();
++    r.continue_min     = 0.0f;
+     r.lm_seed          = base.lm_seed + song;
+     r.seed             = base.seed + variation;
+     r.lm_batch_size    = 1;
+diff --git a/src/request.h b/src/request.h
+index 3a176ed..e267a8a 100644
+--- a/src/request.h
++++ b/src/request.h
+@@ -50,6 +50,18 @@ struct MM3Request {
+     // and the song renders deterministically from these codes.
+     std::string audio_codes;  // ""
+ 
++    // continuation: a code stream in the audio_codes format that the
++    // autoregressive stage starts from. Its frames are teacher-forced on
++    // both CFG streams and the song is sampled on from the last one, up to
++    // duration, which counts the continued frames too. Needs lm_batch_size 1;
++    // ignored when audio_codes is set.
++    std::string continue_codes;  // ""
++
++    // seconds of new music a continuation samples before the end of audio
++    // token is allowed, so a song cut inside its outro does not end again at
++    // once. 0 = no floor.
++    float continue_min;  // 0
++
+     // guidance
+     float lm_cfg;    // 1.5, CFG scale on LM and depth decoder logits
+     int   lm_top_k;  // 50, applied to the conditional branch ranking
+diff --git a/tools/mm-server.cpp b/tools/mm-server.cpp
+index 719a3a4..4764785 100644
+--- a/tools/mm-server.cpp
++++ b/tools/mm-server.cpp
+@@ -543,18 +543,32 @@ static void handle_synth(const httplib::Request & req, httplib::Response & res)
+             return;
+         }
+     }
+-    if (!r.audio_codes.empty()) {
+-        size_t n = 1;
+-        for (char c : r.audio_codes) {
++    for (const std::string * field : { &r.audio_codes, &r.continue_codes }) {
++        if (field->empty()) {
++            continue;
++        }
++        const char * name = field == &r.audio_codes ? "audio_codes" : "continue_codes";
++        size_t       n    = 1;
++        for (char c : *field) {
+             if (c == ',') {
+                 n++;
+             } else if ((c < '0' || c > '9') && c != '-') {
+-                json_error(res, 400, "Invalid audio_codes");
++                json_error(res, 400, (std::string("Invalid ") + name).c_str());
+                 return;
+             }
+         }
+         if (n < 16 || n % 8 != 0) {
+-            json_error(res, 400, "audio_codes needs 8 codes per frame, at least 2 frames");
++            json_error(res, 400, (std::string(name) + " needs 8 codes per frame, at least 2 frames").c_str());
++            return;
++        }
++    }
++    if (r.audio_codes.empty() && !r.continue_codes.empty()) {
++        if (r.lm_batch_size > 1) {
++            json_error(res, 400, "continue_codes needs lm_batch_size 1");
++            return;
++        }
++        if (r.continue_min < 0.0f) {
++            json_error(res, 400, "continue_min must be >= 0");
+             return;
+         }
+     }
+@@ -650,6 +664,12 @@ static void handle_props(const httplib::Request &, httplib::Response & res) {
+ 
+     yyjson_mut_obj_add_str(doc, root, "version", MM3_VERSION);
+ 
++    // features: request fields beyond the upstream set, so a client can tell
++    // an engine that honours them from one that silently ignores them
++    yyjson_mut_val * features = yyjson_mut_arr(doc);
++    yyjson_mut_arr_add_str(doc, features, "continue_codes");
++    yyjson_mut_obj_add_val(doc, root, "features", features);
++
+     // models: available model names per bucket
+     auto add_names = [&](yyjson_mut_val * parent, const char * key, const std::vector<ModelEntry> & bucket) {
+         yyjson_mut_val * arr = yyjson_mut_arr(doc);

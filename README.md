@@ -41,6 +41,9 @@ ask it to.
 - **Reproduce any track exactly.** Every generation stores its request and its audio codes,
   so a track can be re-rendered deterministically, or re-rendered with different steps,
   seed or output format.
+- **Extend a track** from any point: its saved codes up to the cut are fed back to the
+  model and the song carries on from there, with optional new lyrics. Needs an engine
+  built with `engines/patches` (see [Native engine](#native-engine)).
 - **Word-level karaoke** — enhanced LRC with a timestamp on every word, aligned by
   Parakeet, Whisper or a cloud model. Your lyrics are kept; only the timing is borrowed.
 - **Karaoke video** written with the bundled ffmpeg, hardware-encoded when the machine can
@@ -259,6 +262,48 @@ always stage a universal CUDA build; a card-specific build is for local testing 
 
 ```powershell
 scripts\build-minimax-runtime.ps1 -OutputDirectory .\build\engine -RuntimeBackend cuda -CudaArchitecture native
+```
+
+Every `engines/patches/*.patch` is applied on top of the pinned commit. The continuation
+patch adds `continue_codes` / `continue_min` to the engine's request and reports
+`"features": ["continue_codes"]` from `GET /props`; the studio only offers **Extend** when
+the running engine says so.
+
+Without a system-wide CUDA toolkit, `scripts\fetch-cuda-toolkit.ps1` assembles a
+build-only one from NVIDIA's redistributable archives under `cache\` (no installer, the
+driver is left alone). `-BackendDl` produces the release layout, with `ggml-cuda.dll` in
+`cuda13\`:
+
+```powershell
+scripts\fetch-cuda-toolkit.ps1
+scripts\build-minimax-runtime.ps1 -OutputDirectory .\cache\engine-continue -RuntimeBackend cuda `
+  -CudaArchitecture native -CudaToolkit .\cache\cuda-toolkit-13.3.0 -BackendDl
+```
+
+### Extending a track over the API
+
+`POST /v1/music/extend` takes a library song that has audio codes. `from_seconds` is where
+the continuation takes over (the whole song when omitted), `extra_seconds` how much new
+music follows, `lyrics` is appended to the song's own. It answers `202` with a job; poll
+`GET /v1/music/jobs/{id}` until it completes and the new track lands in the library.
+
+```bash
+curl -X POST http://127.0.0.1:8765/v1/music/extend -H "Content-Type: application/json" \
+  -d '{"song_id":"<id>","from_seconds":150,"extra_seconds":60,"lyrics":"[bridge]\n..."}'
+```
+
+```javascript
+const job = await fetch('http://127.0.0.1:8765/v1/music/extend', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ song_id: id, from_seconds: 150, extra_seconds: 60 }),
+}).then((response) => response.json());
+```
+
+```python
+import requests
+job = requests.post("http://127.0.0.1:8765/v1/music/extend",
+                    json={"song_id": song_id, "from_seconds": 150, "extra_seconds": 60}).json()
 ```
 
 ### Release

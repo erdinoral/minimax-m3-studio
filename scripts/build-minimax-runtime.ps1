@@ -5,7 +5,15 @@ param(
     [ValidateSet('auto', 'cuda', 'vulkan', 'all')]
     [string]$RuntimeBackend = 'auto',
     [ValidateSet('universal', 'native', 'sm_89')]
-    [string]$CudaArchitecture = 'universal'
+    [string]$CudaArchitecture = 'universal',
+    # A CUDA toolkit root that is not installed system-wide, such as the one
+    # scripts/fetch-cuda-toolkit.ps1 assembles. Without the Visual Studio CUDA
+    # integration only Ninja can drive nvcc, so this also switches generators.
+    [string]$CudaToolkit,
+    # The release layout: ggml backends as loadable modules and the CUDA one in
+    # a cuda<major> folder beside mm-server.exe, which the studio names to the
+    # engine through MM3_CUDA_BACKEND.
+    [switch]$BackendDl
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,6 +32,14 @@ $engineSource = Get-Content -Raw (Join-Path $repoRoot 'engines\minimaxmusic-cpp-
 # MM3_ENGINE_BUILD_ROOT to move it to a shorter drive root if even that is tight.
 $engineBuildRoot = if ($env:MM3_ENGINE_BUILD_ROOT) { $env:MM3_ENGINE_BUILD_ROOT } else { $env:TEMP }
 $engineWorktree = Join-Path $engineBuildRoot "mm3-$($engineSource.commit.Substring(0, 8))"
+$enginePatches = @(Get-ChildItem -Path (Join-Path $repoRoot 'engines\patches') -Filter '*.patch' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+
+if ($CudaToolkit) {
+    $CudaToolkit = [System.IO.Path]::GetFullPath($CudaToolkit)
+    if (-not (Test-Path (Join-Path $CudaToolkit 'bin\nvcc.exe'))) { throw "No nvcc.exe under the CUDA toolkit $CudaToolkit." }
+    $env:CUDA_PATH = $CudaToolkit
+    $env:PATH = "$CudaToolkit\bin;$CudaToolkit\bin\x64;$env:PATH"
+}
 
 function Test-CudaToolchain {
     $nvidiaSmi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
@@ -84,7 +100,10 @@ function Assert-SpecificOutputDirectory {
 }
 
 function Sync-PinnedSource {
-    if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+    # The custom CUDA build runs inside vcvars64, which brings Visual Studio's
+    # own CMake and Ninja; every other build needs CMake on PATH.
+    $customCuda = $RuntimeBackend -eq 'cuda' -or ($RuntimeBackend -eq 'auto' -and (Test-CudaToolchain))
+    if (-not $customCuda -and -not (Get-Command cmake -ErrorAction SilentlyContinue)) {
         throw 'CMake is required to build the pinned minimaxmusic.cpp runtime. Install CMake and add it to PATH.'
     }
     if (-not (Test-Path (Join-Path $engineWorktree '.git'))) {
@@ -93,10 +112,16 @@ function Sync-PinnedSource {
     }
     git -C $engineWorktree fetch --depth 1 origin $engineSource.commit
     if ($LASTEXITCODE -ne 0) { throw "Could not fetch minimaxmusic.cpp commit $($engineSource.commit)." }
+    # Patches from an earlier build would block the checkout or apply twice.
+    git -C $engineWorktree reset --hard --quiet
     git -C $engineWorktree checkout --detach $engineSource.commit
     if ($LASTEXITCODE -ne 0) { throw "Could not check out minimaxmusic.cpp commit $($engineSource.commit)." }
     git -C $engineWorktree submodule update --init --recursive
     if ($LASTEXITCODE -ne 0) { throw 'Could not initialise minimaxmusic.cpp submodules.' }
+    foreach ($patch in $enginePatches) {
+        git -C $engineWorktree apply --ignore-whitespace $patch.FullName
+        if ($LASTEXITCODE -ne 0) { throw "Engine patch $($patch.Name) does not apply to commit $($engineSource.commit)." }
+    }
 }
 
 function Invoke-CustomCudaBuild {
@@ -150,7 +175,23 @@ function Invoke-CustomCudaBuild {
     # database that address cannot be turned into a line of code. It costs a
     # file next to the executable and no speed: the optimiser is untouched.
     $symbols = '-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=ProgramDatabase -DCMAKE_EXE_LINKER_FLAGS=/DEBUG -DCMAKE_SHARED_LINKER_FLAGS=/DEBUG'
-    $command = "call `"$vcvars`" >nul && cmake -S . -B `"$buildDirectoryName`" -DGGML_CUDA=ON $ccache $flashAttention $symbols $settings && cmake --build `"$buildDirectoryName`" --config Release --target mm-server --target neural-codec --parallel $parallelism"
+    $layout = ''
+    $targets = '--target mm-server --target neural-codec'
+    if ($BackendDl) {
+        $buildDirectoryName += '-dl'
+        # ggml refuses a native CPU backend as a loadable module; the release
+        # ships every CPU variant and picks one at load time instead.
+        # The backends are no longer link dependencies of mm-server, and the
+        # CPU variants have one target each, so everything is built.
+        $layout = '-DGGML_BACKEND_DL=ON -DGGML_NATIVE=OFF -DGGML_CPU_ALL_VARIANTS=ON'
+        $targets = ''
+    }
+    $toolkit = ''
+    if ($CudaToolkit) {
+        $buildDirectoryName += '-ninja'
+        $toolkit = "-G Ninja -DCMAKE_BUILD_TYPE=Release -DCUDAToolkit_ROOT=`"$CudaToolkit`" -DCMAKE_CUDA_COMPILER=`"$CudaToolkit\bin\nvcc.exe`""
+    }
+    $command = "call `"$vcvars`" >nul && cmake -S . -B `"$buildDirectoryName`" $toolkit -DGGML_CUDA=ON $layout $ccache $flashAttention $symbols $settings && cmake --build `"$buildDirectoryName`" --config Release $targets --parallel $parallelism"
     Push-Location $engineWorktree
     # The compiler's own output must not become this function's return value:
     # PowerShell returns everything a function writes, and the build directory
@@ -197,6 +238,12 @@ Copy-Item $runtime (Join-Path $resolvedOutputDirectory 'mm-server.exe') -Force
 $codec = Join-Path (Split-Path -Parent $runtime) 'neural-codec.exe'
 if (Test-Path $codec) { Copy-Item $codec (Join-Path $resolvedOutputDirectory 'neural-codec.exe') -Force }
 Get-ChildItem -Path (Split-Path -Parent $runtime) -Filter '*.dll' -File | Copy-Item -Destination $resolvedOutputDirectory -Force
+if ($BackendDl) {
+    $nvccVersion = (& nvcc --version | Select-String -Pattern 'release (\d+)\.').Matches[0].Groups[1].Value
+    $cudaFolder = Join-Path $resolvedOutputDirectory "cuda$nvccVersion"
+    New-Item -ItemType Directory -Force -Path $cudaFolder | Out-Null
+    Move-Item (Join-Path $resolvedOutputDirectory 'ggml-cuda.dll') (Join-Path $cudaFolder 'ggml-cuda.dll') -Force
+}
 # The engine's own symbols travel with it, so a crash address on someone else's
 # machine can be read here.
 Get-ChildItem -Path (Split-Path -Parent $runtime) -Filter 'mm-server.pdb' -File -ErrorAction SilentlyContinue |
