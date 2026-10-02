@@ -34,7 +34,7 @@ sysinfo.workspace = true
 ort.workspace = true
 parakeet-rs.workspace = true
 rusqlite.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process"] }
 tower-http.workspace = true
 uuid.workspace = true
 zip.workspace = true

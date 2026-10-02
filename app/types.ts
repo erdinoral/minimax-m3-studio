@@ -90,6 +90,8 @@ export interface Music3Request {
   create_mode?: 'simple' | 'studio' | 'instrumental' | 'cover' | string;
   /** Styles chips / free text from Create. Library-only; caption already merges for the engine. */
   styles_text?: string;
+  /** Album-art brief, stored in the library and rendered after audio completes. */
+  cover_prompt?: string;
 }
 
 export interface Music3JobSong {

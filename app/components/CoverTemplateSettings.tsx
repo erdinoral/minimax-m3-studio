@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, Plus, Trash2 } from 'lucide-react';
 import { useI18n } from '../context/I18nContext';
+import { LocalCoverSettings } from './LocalCoverSettings';
 
 /**
  * The cover looks, and which one a new cover starts from.
@@ -90,6 +91,7 @@ export const CoverTemplateSettings: React.FC = () => {
 
   return (
     <div className="max-w-2xl space-y-5">
+      <LocalCoverSettings />
       <p className="text-sm text-zinc-500 dark:text-zinc-400">{t('coverTemplatesHint')}</p>
 
       <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200 p-3 dark:border-white/10">

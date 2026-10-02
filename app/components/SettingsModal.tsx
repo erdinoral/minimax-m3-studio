@@ -221,6 +221,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('poweredBy')}</p>
                 </div>
 
+                {/* Music3's community licence requires a prominent product
+                    attribution when this studio is offered commercially. */}
+                <div className="rounded-xl border border-brand/25 bg-brand/5 px-4 py-3 text-xs leading-5 text-zinc-700 dark:text-zinc-300">
+                  <p className="font-semibold text-zinc-900 dark:text-white">Powered by MiniMax-Music3</p>
+                  <p className="mt-1">MiniMax-Music3 Community License · <a href="https://github.com/MiniMax-AI/MiniMax-Music3/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-brand">License terms</a></p>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => {

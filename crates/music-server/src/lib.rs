@@ -20,6 +20,7 @@ mod skill;
 mod library;
 mod mm_result;
 mod openrouter_stream;
+mod local_cover;
 
 use std::{collections::HashMap, env, fs, net::SocketAddr, path::PathBuf, sync::Arc};
 use anyhow::Context;
@@ -78,6 +79,9 @@ struct AppState {
     /// The separation run in progress, if any. One at a time: the model wants
     /// the whole machine for a minute, and two runs would only make both slow.
     separation_run: Arc<RwLock<Option<SeparationRun>>>,
+    local_cover: Arc<local_cover::LocalCover>,
+    /// Serializes GPU handoff, engine startup and music submissions.
+    gpu_handoff: Arc<tokio::sync::Mutex<()>>,
 }
 
 #[derive(Clone)]
@@ -504,6 +508,8 @@ pub async fn serve() -> anyhow::Result<()> {
             &studio_data_root().unwrap_or_else(|| std::path::PathBuf::from(".")),
         )),
         separation_run: Arc::new(RwLock::new(None)),
+        local_cover: Arc::new(local_cover::LocalCover::new(&studio_data_root().unwrap_or_else(|| PathBuf::from(".")))),
+        gpu_handoff: Arc::new(tokio::sync::Mutex::new(())),
         selected_profile_id: Arc::new(RwLock::new(selected_profile_id)),
         selected_component_ids: Arc::new(RwLock::new(selected_component_ids)),
         settings_path,
@@ -557,6 +563,10 @@ pub async fn serve() -> anyhow::Result<()> {
         .route("/v1/openrouter/transcriptions", post(create_openrouter_transcription))
         .route("/v1/transcriptions/local", post(create_local_transcription))
         .route("/v1/openrouter/covers", post(create_openrouter_cover))
+        .route("/v1/covers/local/status", get(local_cover_status))
+        .route("/v1/covers/local/install", post(install_local_cover))
+        .route("/v1/covers/local/cancel", post(cancel_local_cover))
+        .route("/v1/covers/local/generate", post(generate_local_cover))
         .route("/editor", get(|| async { axum::response::Redirect::permanent("/editor/index.html") }))
         .route("/editor/{*path}", get(editor_asset))
         .route("/v1/separation/runtime", get(separation_assets))
@@ -1216,6 +1226,7 @@ async fn start_separation(
     let song_id = id.clone();
     tokio::task::spawn_blocking(move || {
         point_ort_at(&runtime);
+        let _gpu = if on_gpu { Some(background.gpu_handoff.blocking_lock()) } else { None };
 
         let outcome = (|| -> anyhow::Result<(Vec<String>, bool)> {
             let audio = audio_pcm::decode_stereo_44k(&audio_path)?;
@@ -1478,7 +1489,8 @@ async fn draw_cover_for(state: AppState, song_id: String) {
     // Drawing a cover needs a cloud key. Without one there is nothing to try,
     // and announcing a failure the user cannot act on is noise: the track keeps
     // the placeholder artwork the library already shows.
-    if credentials::openrouter_api_key().is_none() {
+    let local_selected = state.configuration.read().await.selections.iter().any(|s| s.capability == Capability::CoverArt && s.mode == ExecutionMode::Local);
+    if !local_selected && credentials::openrouter_api_key().is_none() {
         return;
     }
     let title = state.library.get_song(&song_id).ok().flatten().map(|song| song.title).unwrap_or_default();
@@ -1492,6 +1504,94 @@ async fn draw_cover_for(state: AppState, song_id: String) {
     }
 }
 
+async fn local_cover_status(State(state): State<AppState>) -> Json<Value> {
+    Json(serde_json::json!({
+        "engine_id": local_cover::ENGINE_ID, "ready": state.local_cover.ready(),
+        "assets": state.local_cover.downloader.status_of(local_cover::ASSETS),
+        "download": state.local_cover.downloader.active().await,
+        "installing": state.local_cover.installing.load(std::sync::atomic::Ordering::SeqCst),
+        "run": state.local_cover.run.read().await.clone(),
+        "capabilities": ["cover_art"], "cancellation": true,
+        "resolution": 1024, "steps": 8, "precision": "Q6_K",
+    }))
+}
+
+async fn install_local_cover(State(state): State<AppState>) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
+    use std::sync::atomic::Ordering;
+    if state.local_cover.installing.swap(true, Ordering::SeqCst) {
+        return Err(api_error(StatusCode::CONFLICT, "Cover engine installation is already running".into()));
+    }
+    *state.local_cover.run.write().await = local_cover::RunStatus::default();
+    tokio::spawn(async move {
+        let assets: Vec<_> = local_cover::ASSETS.iter().collect();
+        if let Err(error) = state.local_cover.downloader.install_all("cover-art", &assets).await {
+            *state.local_cover.run.write().await = local_cover::RunStatus { phase: "install_failed".into(), error: Some(error.to_string()), ..Default::default() };
+        }
+        state.local_cover.installing.store(false, Ordering::SeqCst);
+    });
+    Ok(Json(serde_json::json!({ "started": true })))
+}
+
+async fn cancel_local_cover(State(state): State<AppState>) -> Json<Value> {
+    state.local_cover.cancel();
+    Json(serde_json::json!({ "cancelled": true }))
+}
+
+#[derive(Deserialize)]
+struct LocalCoverRequest { prompt: String }
+
+async fn generate_local_cover(State(state): State<AppState>, Json(request): Json<LocalCoverRequest>) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
+    if request.prompt.trim().is_empty() || request.prompt.len() > 16_000 {
+        return Err(api_error(StatusCode::BAD_REQUEST, "Cover prompt must contain 1–16000 bytes".into()));
+    }
+    let bytes = render_local_cover(&state, &request.prompt).await.map_err(|error| api_error(StatusCode::SERVICE_UNAVAILABLE, error.to_string()))?;
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    Ok(Json(serde_json::json!({ "body": { "data": [{ "b64_json": STANDARD.encode(bytes), "media_type": "image/png" }] } })))
+}
+
+/// Keep music playable while serializing the GPU's model residency.
+async fn render_local_cover(state: &AppState, prompt: &str) -> anyhow::Result<Vec<u8>> {
+    if !state.local_cover.ready() { anyhow::bail!("Install Z-Image Turbo in Settings → Covers first"); }
+    let _gpu = state.gpu_handoff.lock().await;
+    state.local_cover.begin();
+    *state.local_cover.run.write().await = local_cover::RunStatus { phase: "waiting_for_music".into(), ..Default::default() };
+    let result = render_local_cover_under_gpu_lock(state, prompt).await;
+    if let Err(error) = &result {
+        let mut run = state.local_cover.run.write().await;
+        if run.phase == "waiting_for_music" {
+            run.phase = "failed".into();
+            run.error = Some(error.to_string());
+        }
+    }
+    result
+}
+
+async fn render_local_cover_under_gpu_lock(state: &AppState, prompt: &str) -> anyhow::Result<Vec<u8>> {
+    let started = std::time::Instant::now();
+    loop {
+        let active = state.jobs.read().await.values().any(|job| matches!(job.dispatch, MusicJobDispatch::Local) && matches!(job.status, MusicJobStatus::Queued | MusicJobStatus::Running));
+        if !active { break; }
+        if state.local_cover.cancelled() || started.elapsed().as_secs() > 600 {
+            let error = "Cover cancelled or timed out waiting for music";
+            *state.local_cover.run.write().await = local_cover::RunStatus { phase: "cancelled".into(), error: Some(error.into()), ..Default::default() };
+            anyhow::bail!(error);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    {
+        let mut supervisor = state.engine.lock().await;
+        if let Some(engine) = supervisor.as_mut() {
+            tokio::task::block_in_place(|| engine.stop(std::time::Duration::from_secs(10)))?;
+            *supervisor = None;
+        } else if state.music_server.health().await {
+            anyhow::bail!("An external music engine is holding GPU memory. Close it before local cover generation");
+        }
+    }
+    free_the_card_for_the_engine(state).await;
+    let prompt = format!("Square album cover artwork. Strong focal point and intentional composition readable as a small music thumbnail. Cohesive lighting and color palette. No lettering, logos or watermarks.\n{}", prompt.trim());
+    state.local_cover.generate(&prompt).await
+}
+
 /// The work itself, with its reasons kept rather than printed.
 async fn draw_cover(state: &AppState, song_id: &str) -> anyhow::Result<()> {
     use anyhow::Context as _;
@@ -1502,8 +1602,28 @@ async fn draw_cover(state: &AppState, song_id: &str) -> anyhow::Result<()> {
     if song.metadata.get("cover_filename").is_some() {
         return Ok(());
     }
+    let selection = state.configuration.read().await.selections.iter().find(|s| s.capability == Capability::CoverArt).cloned();
+    let templates = state.cover_templates.read().await.clone();
+    let default_id = state.cover_template_default.read().await.clone();
+    let template = templates.iter().find(|entry| Some(&entry.id) == default_id.as_ref()).or_else(|| templates.first()).context("there are no cover templates")?;
+    let facts = cover_prompt::TrackFacts {
+        title: song.title.clone(), style: song.caption.clone(), lyrics: song.lyrics.clone(),
+        duration_seconds: song.metadata.get("duration_seconds").and_then(Value::as_f64).unwrap_or(0.0),
+    };
+    let prompt = song.metadata.get("cover_prompt").and_then(Value::as_str).map(str::trim).filter(|p| !p.is_empty()).map(str::to_owned)
+        .unwrap_or_else(|| cover_prompt::render(&template.template, &facts));
+    if let Some(selection) = selection.filter(|s| s.mode == ExecutionMode::Local) {
+        if selection.local_engine.as_deref() != Some(local_cover::ENGINE_ID) { anyhow::bail!("Unsupported local cover engine; no cloud request was sent"); }
+        let bytes = render_local_cover(state, &prompt).await?;
+        state.library.store_song_cover(song_id, &bytes, "image/png")?;
+        tag_stored_song(state, song_id).await;
+        return Ok(());
+    }
     let model = {
         let configuration = state.configuration.read().await;
+        if configuration.selections.iter().any(|selection| selection.capability == Capability::CoverArt && selection.mode == ExecutionMode::Local) {
+            anyhow::bail!("The selected local cover-art engine is not available in this build; no cloud request was sent");
+        }
         configuration
             .selections
             .iter()
@@ -1979,6 +2099,11 @@ async fn restart_local_engine(State(state): State<AppState>) -> Result<Json<Valu
 }
 
 async fn restart_engine(state: &AppState) -> Result<(), String> {
+    let _gpu = state.gpu_handoff.lock().await;
+    restart_engine_under_gpu_lock(state).await
+}
+
+async fn restart_engine_under_gpu_lock(state: &AppState) -> Result<(), String> {
     let mut supervisor = state.engine.lock().await;
     let owned = supervisor.is_some();
     if let Some(engine) = supervisor.as_mut() {
@@ -2869,6 +2994,7 @@ async fn assistant_runtime_start(
     State(state): State<AppState>,
     Json(request): Json<AssistantModelRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
+    let _gpu = state.gpu_handoff.lock().await;
     let own_file = request.model_path.clone().unwrap_or_default();
     let reasoning = state.assistant.read().await.reasoning_effort.clone();
     let base_url = if own_file.trim().is_empty() {
@@ -3305,6 +3431,9 @@ async fn assistant_write_stream(
 
     tokio::spawn(async move {
         emit(sender.clone(), serde_json::json!({ "stage": "preparing" })).await;
+        let _gpu = if matches!(config.provider, AssistantProvider::Managed | AssistantProvider::Local) {
+            Some(state.gpu_handoff.lock().await)
+        } else { None };
 
         // Where the request goes, and with which model.
         let (base, model, key): (String, String, Option<String>) = match config.provider {
@@ -3473,6 +3602,9 @@ async fn assistant_write(
     Json(request): Json<assistant::AssistRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let config = state.assistant.read().await.clone();
+    let _gpu = if matches!(config.provider, AssistantProvider::Managed | AssistantProvider::Local) {
+        Some(state.gpu_handoff.lock().await)
+    } else { None };
     if !config.available() {
         return Err(api_error(
             StatusCode::CONFLICT,
@@ -3846,9 +3978,9 @@ async fn capabilities(State(state): State<AppState>) -> Json<CapabilitiesRespons
     let assistant = state.assistant.read().await.clone();
     let assistant_installed = assistant.available();
     let catalog = state.openrouter_catalog.read().await;
-    Json(CapabilitiesResponse {
-        engines: capability_engines_with(catalog.catalog.as_ref(), primary_installed, parakeet_installed, whisper_installed, assistant_installed),
-    })
+    let mut engines = capability_engines_with(catalog.catalog.as_ref(), primary_installed, parakeet_installed, whisper_installed, assistant_installed);
+    if let Some(engine) = engines.iter_mut().find(|e| e.id == local_cover::ENGINE_ID) { engine.installed = state.local_cover.ready(); }
+    Json(CapabilitiesResponse { engines })
 }
 
 fn capability_engines(
@@ -3878,6 +4010,10 @@ fn capability_engines_with(
         openrouter_capabilities.push(Capability::MusicGeneration);
     }
     vec![
+        EngineDescriptor {
+            id: local_cover::ENGINE_ID.into(), display_name: "Z-Image Turbo (native album art)".into(),
+            capabilities: vec![Capability::CoverArt], execution_mode: ExecutionMode::Local, installed: false,
+        },
         EngineDescriptor {
             id: PRIMARY_MUSIC_ENGINE_ID.into(),
             display_name: "MiniMax Music3 C++ Server".into(),
@@ -3997,8 +4133,9 @@ async fn create_music_job(
     // can press Generate during its two-second check interval (or just after
     // an engine crash). Start it on demand as well, so the first request is a
     // real attempt rather than an opaque connection-refused response.
+    let _gpu = state.gpu_handoff.lock().await;
     if !state.music_server.health().await {
-        if let Err(error) = restart_engine(&state).await {
+        if let Err(error) = restart_engine_under_gpu_lock(&state).await {
             let job = failed_request_job(
                 request,
                 engine_id,
@@ -4049,6 +4186,10 @@ async fn replay_music_job(
     State(state): State<AppState>,
     Json(request): Json<ReplayMusicJobRequest>,
 ) -> Result<(StatusCode, Json<MusicJob>), (StatusCode, Json<ApiError>)> {
+    let _gpu = state.gpu_handoff.lock().await;
+    if !state.music_server.health().await {
+        restart_engine_under_gpu_lock(&state).await.map_err(|error| api_error(StatusCode::SERVICE_UNAVAILABLE, error))?;
+    }
     if selected_local_music_engine(&*state.configuration.read().await).as_deref() != Some(PRIMARY_MUSIC_ENGINE_ID) {
         return Err(api_error(StatusCode::CONFLICT, "Replay synthesis requires the local minimaxmusic-cpp engine.".into()));
     }
@@ -4986,9 +5127,21 @@ mod tests {
         let catalog = providers::openrouter::CapabilityCatalog::parse(r#"{"data":[{"id":"catalog/music","name":"Song","description":"Music generation for full-length songs","architecture":{"input_modalities":["text"],"output_modalities":["audio"]}}]}"#).unwrap();
         let after_refresh = CapabilitiesResponse { engines: capability_engines(Some(&catalog), false) };
         assert!(after_refresh.engines.iter().find(|engine| engine.id == "openrouter").unwrap().capabilities.contains(&Capability::MusicGeneration));
-        // The music engine, two recognisers, the local assistant and
+        // The music engine, local cover engine, two recognisers, assistant and
         // OpenRouter: everything listed is something the studio can actually do.
-        assert_eq!(serde_json::to_value(after_refresh).unwrap()["engines"].as_array().unwrap().len(), 5);
+        assert_eq!(serde_json::to_value(after_refresh).unwrap()["engines"].as_array().unwrap().len(), 6);
+    }
+
+    #[test]
+    fn local_cover_selection_survives_restart_without_cloud_fallback() {
+        let mut configuration = StudioConfiguration::default();
+        let cover = configuration.selections.iter_mut().find(|s| s.capability == Capability::CoverArt).unwrap();
+        cover.mode = ExecutionMode::Local;
+        cover.local_engine = Some(local_cover::ENGINE_ID.into());
+        let sanitized = sanitize_persisted_configuration(configuration);
+        let cover = sanitized.selections.iter().find(|s| s.capability == Capability::CoverArt).unwrap();
+        assert_eq!(cover.mode, ExecutionMode::Local);
+        assert_eq!(cover.local_engine.as_deref(), Some(local_cover::ENGINE_ID));
     }
 
     #[test]

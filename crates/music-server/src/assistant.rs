@@ -22,19 +22,24 @@ use serde_json::Value;
 /// image model can draw from.
 const EXTRA: &str = "title: a short song title, two to five words, no quotation marks, in the language of the lyrics. cover_prompt: one sentence describing a cover image for this track - a scene, not a poster; no text, no lettering, no logos. duration_seconds: how long a track of this genre and arrangement normally runs, in seconds, between 30 and 360.";
 
-const VALIDATION: &str = "Before answering, check your own draft: every explicit user constraint kept, an instrumental request still instrumental, vocal gender not contradicted, every section tag present in its own section, no lyric line quoted or summarised, no song title inside the caption fields, no invented exact BPM or key unless the user stated that BPM/key, every instrument or percussion named in Styles or HARD instrument constraints (e.g. cowbell, 808, saxophone, keman) appears by name in arrangement and/or Sonics & Production Profile and is not replaced by generic drums alone, and no sentence copied from a reference. Fix what fails, then answer.";
+/// Caption must follow Styles/brief only — never invent a competing genre.
+const STYLES_FIDELITY: &str = r#"Styles-only fidelity (non-negotiable): Write genre, subgenre, instruments and production character from Styles / the brief / HARD constraints only. Every genre, instrument or percussion named there MUST appear in Arrangement and/or Sonics & Production Profile by name — do not drop or replace them with anonymous "drums" / "pad". Do NOT invent competing genres or genre-signature sounds that Styles did not name (common leaks when absent: phonk, memphis phonk, drift phonk, cowbell-as-phonk-hook, trap rolls as a new identity). Ordinary supporting parts that belong to the stated genre are fine (e.g. kick, bass, hat, pad for deep house). Exclude lists are absolute bans."#;
+
+const VALIDATION: &str = "Before answering, check your own draft: every explicit user constraint kept, an instrumental request still instrumental, vocal gender not contradicted, every section tag present in its own section, no lyric line quoted or summarised, no song title inside the caption fields, no invented exact BPM or key unless the user stated that BPM/key, Styles-only fidelity held (no unrequested genre or genre-signature instrument such as phonk/cowbell when absent from Styles), every instrument or percussion named in Styles or HARD instrument constraints appears by name in arrangement and/or Sonics & Production Profile and is not replaced by generic drums alone, and no sentence copied from a reference. Fix what fails, then answer.";
 
 const CAPTION_CONTRACT: &str = r#"The three caption fields follow the exact labeled style the model was trained on, and the rules below are MiniMax's own, from the music-caption-rewriter skill they publish with the model.
 
-Be concrete and musical: describe an energy arc and instrument lifecycles, never a static equipment list or decorative adjectives. Preserve every explicit user constraint - an instrumental request stays instrumental, and a required vocal gender, tempo limit, required instrument or exclusion is never reversed. When Styles or the brief name a specific instrument or percussion (cowbell, 808, violin/keman, saxophone, etc.), that name MUST appear in Instrument Lifecycle (Primary or Secondary) and again in Sonics & Production Profile with a concrete role (when it enters, which sections, how it accents the groove) — never drop it or substitute anonymous "percussion" / "drums" / "pad". When the user states an explicit BPM in their styles or brief, put that exact BPM in Basic Attributes. When they do not, choose a suitable tempo automatically using a range or qualitative tempo — do not invent a fake precise BPM. Do not invent a precise key, vocal gender or production technique when a broader description is sufficient. Never quote, paraphrase or summarise a lyric line inside the caption, and never include a song title or track id. Total caption length roughly 280-450 English words. Write in English unless the user explicitly asks for another language.
+Be concrete and musical: describe an energy arc and instrument lifecycles, never a static equipment list or decorative adjectives. Preserve every explicit user constraint - an instrumental request stays instrumental, and a required vocal gender, tempo limit, required instrument or exclusion is never reversed. Styles-only fidelity (non-negotiable): write genre, subgenre, instruments and production character from Styles / the brief / HARD constraints only. Every genre, instrument or percussion named there MUST appear in Instrument Lifecycle (Primary or Secondary) and again in Sonics & Production Profile with a concrete role — never drop it or substitute anonymous "percussion" / "drums" / "pad". Do NOT invent competing genres or genre-signature sounds that Styles did not name (common leaks when absent: phonk, memphis phonk, drift phonk, cowbell-as-phonk-hook, trap rolls as a new identity). Ordinary supporting parts that belong to the stated genre are fine (e.g. kick, bass, hat, pad for deep house). Exclude lists are absolute bans. When the user states an explicit BPM in their styles or brief, put that exact BPM in Basic Attributes. When they do not, choose a suitable tempo automatically using a range or qualitative tempo — do not invent a fake precise BPM. Do not invent a precise key, vocal gender or production technique when a broader description is sufficient. Never quote, paraphrase or summarise a lyric line inside the caption, and never include a song title or track id. Total caption length roughly 280-450 English words. Write in English unless the user explicitly asks for another language.
 
-Variety (anti-template): do not reuse stock filler such as "atmospheric pads", "driving drums", "night drive", "emotional progression builds", "crisp mix" or the same three-sentence skeleton across drafts. Invent a distinctive hook idea, specific secondary textures, and concrete mix moves (sidechain depth, tape saturation, mid/side width, room mic distance, transient shaping). Each draft must feel like a different arrangement of the brief — change instrumentation emphasis, groove personality, and section-to-section contrast. Prefer vivid, section-aware detail over short generic blurbs.
+Variety (anti-template): do not reuse stock filler such as "atmospheric pads", "driving drums", "night drive", "emotional progression builds", "crisp mix" or the same three-sentence skeleton across drafts. Within the stated style family only, vary the hook idea, secondary textures, and concrete mix moves (sidechain depth, tape saturation, mid/side width, room mic distance, transient shaping). Each draft must feel like a different arrangement of the same brief — change emphasis and section-to-section contrast without adding a new genre. Prefer vivid, section-aware detail over short generic blurbs.
 
-global_metadata: genre and subgenres, tempo, emotional progression, and the overall sonic and production profile, in this order: "Basic Attributes: bpm is <number or range>. key is <letter>, and scale is <major|minor>. <Genre / Subgenre>." then "Global Emotional Progression: <how the emotion evolves from the opening through the final section>." then "Application Scenarios & Imagery: <two or three vivid listening scenarios>." then "Sonics & Production Profile: <soundstage, frequency balance, dynamics, production character — name required Style instruments here>." Include key and scale only when explicit or musically useful.
+Enrichment: establish one recognizable hook with a concrete melodic or rhythmic role. Follow every occurrence of the supplied section tags in order, including repeated choruses. Keep repeated hooks recognizable while changing density, register or permitted backing parts deliberately. For each section describe energy, foreground, instrument entries/exits, bass/percussion development and the transition to the next section. Do not turn every section into the climax. Keep tempo, vocal identity and spatial treatment consistent across all three fields. Never invent precise timestamps or describe the supplied text as measured audio analysis. Enrichment is better musical decisions, not extra decorative adjectives.
 
-vocal_details: for vocal music describe the lead configuration, timbre, register, delivery, harmony or backing vocals and restrained vocal effects: "Vocal Gender & Timbre: Singer A (<Male|Female>), <timbre and register>." then "Vocal Style: <delivery, and how it shifts per section>." then "Harmony/Backing Vocals: <where harmonies or doubles appear and their character>." then "Vocal FX: <restrained treatment: reverb, delay, light compression>." For instrumental music state that the piece is instrumental and name the instrument or texture carrying the lead melodic role. Do not invent lyrical subject matter.
+global_metadata: genre and subgenres, tempo, emotional progression, and the overall sonic and production profile, in this order: "Basic Attributes: <explicit BPM, or suitable qualitative tempo/range>. <Genre / Subgenre>." then "Global Emotional Progression: <how the emotion evolves from the opening through the final section>." then "Application Scenarios & Imagery: <two or three vivid listening scenarios>." then "Sonics & Production Profile: <soundstage, frequency balance, dynamics, production character — name required Style instruments here>." Include precise key and scale only when explicitly supplied; otherwise omit them rather than filling placeholders. Genre line must match Styles — do not append an unrequested subgenre.
 
-arrangement: the song as a section-by-section timeline: "Instrument Lifecycle Description (Primary/Secondary Layering): Primary: <core instruments present start to finish and their role — include every Styles-required instrument by name>. Secondary: <instruments that enter, exit or intensify, and in which sections>." then "Groove & Foundation Progression: <how drums, bass, cowbell or other Style percussion develop across sections>." then "Embellishments, Textures & Spatial FX: <fills, textures, transitional gestures, stereo and space treatment where relevant>." For every section say what enters, exits, changes or intensifies, aligned with the lyric section tags, and keep transitions musically plausible. Prefer concrete musical changes over decorative prose."#;
+vocal_details: for vocal music describe the lead configuration, timbre, register, delivery, harmony or backing vocals and restrained vocal effects: "Vocal Gender & Timbre: Singer A, <timbre and register, gender only if explicitly supplied>." then "Vocal Style: <delivery, and how it shifts per section>." then "Harmony/Backing Vocals: <where harmonies or doubles appear and their character>." then "Vocal FX: <restrained treatment: reverb, delay, light compression>." For instrumental music state that the piece is instrumental and name the instrument or texture carrying the lead melodic role. Do not invent lyrical subject matter.
+
+arrangement: the song as a section-by-section timeline: "Instrument Lifecycle Description (Primary/Secondary Layering): Primary: <core instruments present start to finish and their role — include every Styles-required instrument by name>. Secondary: <instruments that enter, exit or intensify, and in which sections>." then "Groove & Foundation Progression: <how drums, bass and any Style-named percussion develop across sections>." then "Embellishments, Textures & Spatial FX: <fills, textures, transitional gestures, stereo and space treatment where relevant>." For every section say what enters, exits, changes or intensifies, aligned with the lyric section tags, and keep transitions musically plausible. Prefer concrete musical changes over decorative prose."#;
 
 /// The lyric rules, likewise transcribed: the tag vocabulary and the structure
 /// sizing are what keep the sung result aligned with the requested length.
@@ -148,7 +153,9 @@ pub fn instructions(request: &AssistRequest) -> (String, &'static [&'static str]
     let notes = craft_notes(request);
     match request.target {
         AssistTarget::Style => (
-            "You are a music producer preparing a concise creative brief for MiniMax Music 3. Given the user's Styles note, preserve every explicit genre, instrument, vocal, language, tempo and exclusion. Resolve contradictions, limit the core direction to two compatible genres plus one influence, and replace vague tags with concrete performance and production direction. Do not mention artists or copyrighted songs. Do not write lyrics or a structured caption yet. Answer with ONLY a JSON object with key: style_brief.".into(),
+            format!(
+                "You are a music producer preparing a concise creative brief for MiniMax Music 3. Given the user's Styles note, preserve every explicit genre, instrument, vocal, language, tempo and exclusion. Resolve contradictions without inventing a new genre. Keep only the genres and instruments Styles already names — do not add a supporting influence, phonk, cowbell, or any other identity that was not requested. Replace vague tags with concrete performance and production direction inside that same style. Do not mention artists or copyrighted songs. Do not write lyrics or a structured caption yet. {STYLES_FIDELITY} Answer with ONLY a JSON object with key: style_brief."
+            ),
             &["style_brief"],
         ),
         AssistTarget::Lyrics => (
@@ -165,7 +172,8 @@ pub fn instructions(request: &AssistRequest) -> (String, &'static [&'static str]
                 "You write the structured caption for MiniMax Music 3, a lyrics+description music generation model.\n\
                  Given a sound instruction and/or lyrics, produce global_metadata, vocal_details and arrangement. Build the arrangement timeline around the lyric section tags when lyrics are provided. {CAPTION_CONTRACT}{notes}\n\
                  Also write {EXTRA}\n\
-                 Answer with ONLY a JSON object with keys: global_metadata, vocal_details, arrangement, title, cover_prompt, duration_seconds."
+                 Answer with ONLY a JSON object with keys: global_metadata, vocal_details, arrangement, title, cover_prompt, duration_seconds.
+                 {VALIDATION}{references}"
             ),
             &["global_metadata", "vocal_details", "arrangement"],
         ),
@@ -283,7 +291,7 @@ fn references_for(request: &AssistRequest) -> String {
     }
     let mut block = String::from("
 
-Reference captions from MiniMax's own library, in the style family this request routes to. Use them for musical identity, section logic and level of detail. Do not copy their sentences, key, bpm, instruments or story - write a new caption for this request.
+Reference captions from MiniMax's own library, in the style family this request routes to. Use them for section logic, level of detail and how a caption in this family is written. Do not copy their sentences, key, bpm, instruments or story. Never import a genre, subgenre or signature sound from a reference when Styles / the brief did not name it — Styles win over references.
 ");
     for (index, reference) in references.iter().enumerate() {
         block.push_str(&format!("
@@ -558,6 +566,53 @@ mod tests {
         println!("system prompt: {} characters, {} reference blocks", system.len(), system.matches("--- reference").count());
         assert!(system.len() < 24_000, "the prompt grew to {} characters", system.len());
         assert!(system.matches("--- reference").count() <= 3);
+    }
+
+    /// Styles win: caption/prompt paths must forbid inventing unrequested
+    /// genres (phonk leak) and Style briefs must not invent a supporting influence.
+    #[test]
+    fn caption_and_style_prompts_require_styles_only_fidelity() {
+        let caption = super::AssistRequest {
+            target: super::AssistTarget::Prompt,
+            description: String::new(),
+            instruction: "electro deep house, warm pads, deep sub bass".into(),
+            lyrics: String::new(),
+            global_metadata: String::new(),
+            vocal_details: String::new(),
+            arrangement: String::new(),
+            duration_seconds: 120.0,
+            instrumental: false,
+            lyrics_language: String::new(),
+        };
+        let (caption_system, _) = super::instructions(&caption);
+        assert!(
+            caption_system.contains("Styles-only fidelity"),
+            "caption prompt missing Styles-only fidelity"
+        );
+        assert!(
+            caption_system.contains("phonk"),
+            "caption prompt should name phonk as a forbidden leak when absent"
+        );
+        assert!(
+            caption_system.contains("Styles win over references")
+                || caption_system.contains("Never import a genre"),
+            "references must lose to Styles"
+        );
+
+        let style = super::AssistRequest {
+            target: super::AssistTarget::Style,
+            ..caption
+        };
+        let (style_system, _) = super::instructions(&style);
+        assert!(
+            style_system.contains("Do not invent competing genres")
+                || style_system.contains("do not add a supporting influence"),
+            "style brief must not invent genres"
+        );
+        assert!(
+            !style_system.contains("two compatible genres plus one influence"),
+            "old invent-an-influence rule must be gone"
+        );
     }
 
     /// The skill's own reference captions were selected and then never used:

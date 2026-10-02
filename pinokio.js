@@ -9,9 +9,11 @@ module.exports = {
       && info.exists('app/dist/index.html')
       && (info.exists('resources/minimaxmusic-cpp/mm-server.exe')
         || info.exists('runtime/resources/minimaxmusic-cpp/mm-server.exe'))
+    const desktopReady = info.exists('release/local-portable/MiniMax-Music3-Studio/MiniMax-Music3-Studio.exe')
     const running = {
       install: info.running('install.js'),
       start: info.running('start.js'),
+      desktop: info.running('desktop.js'),
       update: info.running('update.js'),
       reset: info.running('reset.js')
     }
@@ -22,6 +24,15 @@ module.exports = {
         icon: 'fa-solid fa-plug',
         text: 'Installing',
         href: 'install.js'
+      }]
+    }
+
+    if (running.desktop) {
+      return [{
+        default: true,
+        icon: 'fa-solid fa-desktop',
+        text: 'Desktop / Stop',
+        href: 'desktop.js'
       }]
     }
 
@@ -71,7 +82,11 @@ module.exports = {
         icon: 'fa-solid fa-power-off',
         text: 'Start',
         href: 'start.js'
-      }, {
+      }, ...(desktopReady ? [{
+        icon: 'fa-solid fa-desktop',
+        text: 'Masaüstü uygulamasını aç',
+        href: 'desktop.js'
+      }] : []), {
         icon: 'fa-solid fa-plug',
         text: 'Update',
         href: 'update.js'
@@ -84,6 +99,19 @@ module.exports = {
         text: 'Reset',
         href: 'reset.js',
         confirm: 'Reset deletes build outputs and cache. Engine under resources/ is kept. Run Install again after.'
+      }]
+    }
+
+    if (desktopReady) {
+      return [{
+        default: true,
+        icon: 'fa-solid fa-desktop',
+        text: 'Masaüstü uygulamasını aç',
+        href: 'desktop.js'
+      }, {
+        icon: 'fa-solid fa-plug',
+        text: 'Install',
+        href: 'install.js'
       }]
     }
 

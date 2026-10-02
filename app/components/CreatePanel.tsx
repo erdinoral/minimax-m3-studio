@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { karaokeReason } from '../services/karaoke';
+import { captionCraftInstruction } from '../services/captionCraft';
 import { AlertTriangle, ChevronDown, CircleAlert, Dices, FileAudio, FolderOpen, Loader2, RotateCcw, Save, Sparkles, Square, Trash2, Upload, Wand2, Settings2 } from 'lucide-react';
 import type { Music3Request, Song } from '../types';
 import { useI18n } from '../context/I18nContext';
 import { joinCaption, randomExample, splitCaption } from '../services/examples';
-import { loadNativeOpenRouterCatalog, modelsForCapability, transcribeWithLocalRecognizer, transcribeWithNativeOpenRouter } from '../services/nativeOpenRouter';
+import { transcribeWithSelectedProvider } from '../services/nativeOpenRouter';
 import { appendStylesToCaption, expandStylesForCaption, orderedStyleChips, recordStylesTextChips, styleTextHasChip, toggleStyleInText } from '../services/styleChips';
 
 /** mm-server rejects empty lyrics; instrumental = section tags, no sung words. */
@@ -360,7 +361,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverTranscript, setCoverTranscript] = useState('');
   const [coverBusy, setCoverBusy] = useState(false);
-  const [asrModelId, setAsrModelId] = useState<string | null>(null);
   // Song language lock: auto = intent/lyrics rules; not UI/brief language alone.
   const [lyricsLanguage, setLyricsLanguageState] = useState<'auto' | 'tr' | 'en' | 'ru' | 'ja' | 'zh' | 'ko'>(() => {
     try {
@@ -440,15 +440,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     };
   }, []);
 
-  useEffect(() => {
-    if (mode !== 'cover') return;
-    void loadNativeOpenRouterCatalog()
-      .then(models => {
-        const asr = modelsForCapability(models, 'speech_to_text');
-        setAsrModelId(asr[0]?.id ?? null);
-      })
-      .catch(() => setAsrModelId(null));
-  }, [mode]);
 
   useEffect(() => {
     const onCover = (event: Event) => {
@@ -500,15 +491,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     setCoverBusy(true);
     setError(null);
     try {
-      // Karaoke's Whisper/Parakeet install doubles as Cover's offline ASR.
-      // If it is not installed, retain the existing cloud route as a fallback.
-      let text: string;
-      try {
-        text = await transcribeWithLocalRecognizer(coverFile);
-      } catch (localReason) {
-        if (!asrModelId) throw localReason;
-        text = await transcribeWithNativeOpenRouter(asrModelId, coverFile);
-      }
+      const text = await transcribeWithSelectedProvider(coverFile);
       setCoverTranscript(text.trim());
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -541,7 +524,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const reset = () => {
     setName(''); setGlobalMetadata(''); setVocalDetails(''); setArrangement(''); setLyrics(''); setInstrumental(false);
     setStylesText(''); setExcludeStyles(''); setVocalGender('auto');
-    setDuration(''); setLmBatch(''); setLmSeed(''); setLmCfg(''); setLmTopK(''); setAudioCodes('');
+    setDuration(''); setLmSeed(''); setLmCfg(''); setLmTopK(''); setAudioCodes('');
     setSteps(''); setDitCfg(''); setSynthBatch(''); setSeed('');
     setPeakClip(''); setMp3Bitrate('320'); setFormat('mp3'); setModels({});
     setError(null);
@@ -623,7 +606,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       setLmCfg(asString(parsed.lm_cfg));
       setLmTopK(asString(parsed.lm_top_k));
       setLmSeed(asString(parsed.lm_seed));
-      setLmBatch(asString(parsed.lm_batch_size));
       setDitCfg(asString(parsed.dit_cfg));
       setSynthBatch(asString(parsed.synth_batch_size));
       setSeed(asString(parsed.seed));
@@ -705,9 +687,10 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     const lines: string[] = [
       'Write the structured caption (global_metadata, vocal_details, arrangement) for MiniMax Music 3 from the styles and lyrics below.',
       'Caption fields must stay in English. Align arrangement sections with the lyric tags.',
+      captionCraftInstruction(lyricText, snap?.duration ?? duration),
       'BPM rule: if the styles state an explicit BPM (or tempo number), use that exact BPM in Basic Attributes. If no BPM is given, choose a suitable tempo automatically (a range or qualitative tempo is fine — do not invent a fake precise BPM).',
-      'HARD Styles fidelity: every named genre, instrument, or percussion in Styles (e.g. cowbell, 808, saxophone, keman) MUST appear explicitly in Arrangement and/or Sonics & Production Profile — do not drop or replace them with generic drums.',
-      'Variety: avoid stock filler ("atmospheric pads", "driving drums", "night drive"). Invent a distinctive hook, specific secondary textures, and concrete mix moves. Aim for ~300-450 words with clear section-to-section contrast — not a short generic blurb.',
+      'HARD Styles-only fidelity: describe ONLY genres, instruments and production character already named in Styles. Every named genre/instrument/percussion MUST appear in Arrangement and/or Sonics. Do NOT invent competing genres or signature sounds Styles did not name (e.g. phonk, memphis, drift phonk, cowbell-as-phonk when absent). Ordinary parts of the stated genre are fine (kick/bass/hat/pad for house). Exclude lists are absolute bans.',
+      'Variety: avoid stock filler ("atmospheric pads", "driving drums", "night drive"). Within the stated style only, vary the hook, secondary textures, and concrete mix moves. Aim for ~300-450 words with clear section-to-section contrast — not a short generic blurb, and not a new genre.',
     ];
     if (instrumentLock) {
       lines.push(`HARD instrument constraints (from Styles — mandatory in Arrangement + Sonics):\n${instrumentLock}`);
@@ -734,8 +717,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       `Rewrite ONLY the ${focus} field for MiniMax Music 3. Return all three caption fields in JSON.`,
       'Copy the other two fields EXACTLY from Current below — do not change their wording.',
       'Caption fields must stay in English. Strengthen musical concreteness; keep lyric section tags aligned when rewriting arrangement.',
-      'HARD Styles fidelity: named instruments/genres in Styles must appear in Arrangement and/or Sonics.',
-      'Make the rewritten field more specific and less template-like: name textures, groove personality, and mix moves — avoid stock filler phrases.',
+      'HARD Styles-only fidelity: keep only genres/instruments Styles named; do not invent phonk, cowbell, or other signature sounds when absent from Styles. Named Styles items must appear in Arrangement and/or Sonics.',
+      'Make the rewritten field more specific and less template-like within the stated style: name textures, groove personality, and mix moves — avoid stock filler phrases and competing genres.',
     ];
     if (instrumentLock) {
       lines.push(`HARD instrument constraints:\n${instrumentLock}`);
@@ -755,7 +738,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     const lines = [
       'Turn the raw Styles note below into a concise, high-quality producer brief for MiniMax Music 3.',
       'Keep every explicit constraint (genre, instruments, BPM, vocal, language, exclusions). Resolve contradictions instead of stacking unrelated genres.',
-      'Choose at most two compatible core genres and one supporting influence. Replace vague words with concrete groove, performance and production direction.',
+      'Do not invent a new genre or supporting influence Styles did not name (no phonk, cowbell, memphis, etc. unless present). Stay inside the named styles; replace vague words with concrete groove, performance and production direction.',
       `Raw Styles:\n${snap.stylesText.trim()}`,
     ];
     if (snap.excludeStyles.trim()) lines.push(`Exclude / avoid:\n${snap.excludeStyles.trim()}`);
@@ -781,9 +764,12 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     const currentGender = snap?.vocalGender ?? vocalGender;
     const lines = [
       'Act as the final producer and quality editor for this MiniMax Music 3 structured caption. Return all three caption fields in JSON.',
+      captionCraftInstruction(currentLyrics, snap?.duration ?? duration),
+      'Also return cover_prompt: a concise English square album-art prompt inspired by the final lyrics, mood and musical identity. Describe one concrete visual scene, composition, lighting and palette. No text, logos or watermarks. Do not copy the musical caption or claim to have listened to audio.',
       'Keep the musical intent and every explicit user constraint, but revise weak details. Resolve contradictions between genre, energy, tempo, vocal identity and instrumentation.',
+      'HARD Styles-only fidelity: do not add genres or signature sounds Styles did not name (e.g. phonk/cowbell when absent). Remove any leaked competing genre identity. Preserve every named Styles item in Arrangement and/or Sonics.',
       'Make Arrangement a credible timeline aligned to every lyric section tag: say what enters, exits or changes, rather than listing equipment.',
-      'Replace generic filler with a distinctive hook, concrete playing technique, groove detail and restrained mix moves. Do not invent an exact BPM, key, singer gender or artist reference unless it is already stated.',
+      'Replace generic filler with a distinctive hook, concrete playing technique, groove detail and restrained mix moves — still inside the stated style. Do not invent an exact BPM, key, singer gender or artist reference unless it is already stated.',
       'Keep the caption in English, do not quote lyric lines, and keep the whole result focused enough for Music3 (roughly 280–450 words).',
       `Current caption to audit:\nGlobal Metadata:\n${currentGlobal.trim() || '(empty)'}\n\nVocal Details:\n${currentVocal.trim() || '(empty)'}\n\nArrangement:\n${currentArrangement.trim() || '(empty)'}`,
     ];
@@ -1181,7 +1167,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
           // direction, so lyrics and the structured caption inherit the same
           // tempo, instrumentation and energy decisions.
           if (assistantReady && working.stylesText.trim()) {
-            updateTempSongForClick?.(tempId, { stage: 'stageWritingCaption' });
+            updateTempSongForClick?.(tempId, { stage: 'stagePlanningStyles' });
             const styleDraft = await runAssistantWrite(
               'style',
               buildStyleProducerInstruction(working),
@@ -1262,7 +1248,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               titleForRequest = draft.title.trim();
               setName(titleForRequest);
             }
-            if (draft.cover_prompt?.trim()) {
+            if (!working.coverPrompt.trim() && draft.cover_prompt?.trim()) {
               coverForRequest = draft.cover_prompt.trim();
               setCoverPrompt(coverForRequest);
             }
@@ -1278,7 +1264,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
           // catches generic filler and mismatches with the final lyric tags;
           // the manual caption editor still works without any assistant.
           if (assistantReady && captionText) {
-            updateTempSongForClick?.(tempId, { stage: 'stageWritingCaption' });
+            updateTempSongForClick?.(tempId, { stage: 'stageAuditingPlan' });
             const qualityDraft = await runAssistantWrite(
               'prompt',
               buildProducerQualityPassInstruction({
@@ -1304,6 +1290,10 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               qualityDraft.vocal_details ?? captionFields.vocalDetails,
               qualityDraft.arrangement ?? captionFields.arrangement,
             ).trim();
+            if (!working.coverPrompt.trim() && qualityDraft.cover_prompt?.trim()) {
+              coverForRequest = qualityDraft.cover_prompt.trim();
+              setCoverPrompt(coverForRequest);
+            }
             if (revisedCaption) {
               captionText = revisedCaption;
               captionFields = {
@@ -1380,7 +1370,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   ];
 
   const resetParameters = () => {
-    setDuration(''); setLmBatch(''); setLmSeed(''); setLmCfg(''); setLmTopK(''); setAudioCodes('');
+    setDuration(''); setLmSeed(''); setLmCfg(''); setLmTopK(''); setAudioCodes('');
     setSteps(''); setDitCfg(''); setSynthBatch(''); setSeed(''); setRandomizeSeed(true);
     setPeakClip(''); setMp3Bitrate('320'); setFormat('mp3'); setModels({});
   };
@@ -1491,7 +1481,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 type="button"
                 onClick={() => void askAssistant('all', [
                   assistInstruction.trim(),
-                  'Caption variety: avoid stock filler ("atmospheric pads", "driving drums"). Invent a distinctive hook, specific textures, and concrete mix moves (~300-450 words).',
+                  'HARD Styles-only fidelity: caption must follow only genres/instruments in the idea above — do not invent phonk, cowbell, or other competing styles when absent.',
+                  'Caption variety: avoid stock filler ("atmospheric pads", "driving drums"). Within the stated style only, vary the hook, textures, and mix moves (~300-450 words).',
                 ].filter(Boolean).join('\n\n'))}
                 disabled={assisting !== null || musicOccupiesGpu || !assistInstruction.trim()}
                 className={`mt-3 ${CTA}`}
@@ -1578,9 +1569,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 <Upload size={14} />
                 {coverFile ? coverFile.name : t('coverUploadAudio')}
               </button>
-              {!asrModelId && (
-                <p className="mt-2 text-[11px] leading-4 text-amber-700 dark:text-amber-300">{t('coverNeedsAsr')}</p>
-              )}
+              <p className="mt-2 text-[11px] leading-4 text-zinc-500">{t('asrUsesSettings')}</p>
               <button
                 type="button"
                 onClick={() => void transcribeCover()}
@@ -1991,6 +1980,21 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     </>
                   )}
                 </div>
+                <label className={LABEL}>{t('renderProfile')}</label>
+                <select
+                  className={CONTROL}
+                  value={steps === '16' ? 'fast' : steps === '30' ? 'balanced' : steps === '50' ? 'quality' : 'custom'}
+                  onChange={event => {
+                    const values: Record<string, string> = { fast: '16', balanced: '30', quality: '50' };
+                    if (values[event.target.value]) setSteps(values[event.target.value]);
+                  }}
+                >
+                  <option value="custom">{t('renderCustom')}</option>
+                  <option value="fast">{t('renderFast')}</option>
+                  <option value="balanced">{t('renderBalanced')}</option>
+                  <option value="quality">{t('renderQuality')}</option>
+                </select>
+                <p className="text-[11px] text-zinc-500">{t('renderProfileHint')}</p>
                 <SliderRow
                   label={t('ditSteps')}
                   value={steps}

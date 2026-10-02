@@ -92,6 +92,22 @@ export async function transcribeWithLocalRecognizer(file: File, language?: strin
   return response.text;
 }
 
+/** Respect the capability selection; a failed local job must never upload audio. */
+export async function transcribeWithSelectedProvider(file: File, language?: string): Promise<string> {
+  const response = await fetch('/v1/configuration');
+  if (!response.ok) throw await responseError(response);
+  const configuration = await response.json() as {
+    selections?: Array<{ capability: string; mode: string; cloud_model?: string | null }>;
+  };
+  const selection = configuration.selections?.find(item => item.capability === 'speech_to_text');
+  if (selection?.mode === 'local') return transcribeWithLocalRecognizer(file, language);
+  if (selection?.mode !== 'open_router' && selection?.mode !== 'openrouter') {
+    throw new Error('Choose a speech-to-text provider in Settings.');
+  }
+  if (!selection.cloud_model?.trim()) throw new Error('Choose a speech-to-text model in Settings.');
+  return transcribeWithNativeOpenRouter(selection.cloud_model, file, language);
+}
+
 export async function generateCoverWithNativeOpenRouter(modelId: string, prompt: string): Promise<string> {
   const response = await jsonRequest<NativeOpenRouterResponse>('/v1/openrouter/covers', {
     model_id: modelId,

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Copy, Download, FileAudio, Loader2, Music, Play, RefreshCw, Scissors, Search, SlidersHorizontal } from 'lucide-react';
 import { useI18n } from '../context/I18nContext';
 import { DevicePicker } from './DevicePicker';
-import { transcribeWithNativeOpenRouter } from '../services/nativeOpenRouter';
+import { transcribeWithSelectedProvider } from '../services/nativeOpenRouter';
 import { apiUrl } from '../services/apiBase';
 import { openExternal } from '../services/externalLinks';
 import { StemPlayer } from './StemPlayer';
@@ -45,11 +45,6 @@ const QUALITIES = [
   { overlap: 0.5, key: 'separationQualityBest' },
 ] as const;
 
-interface CatalogModel {
-  id: string;
-  name: string;
-  capabilities: string[];
-}
 
 const CARD = 'rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-white/10 dark:bg-white/[0.03]';
 const CONTROL =
@@ -67,8 +62,6 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [asrModels, setAsrModels] = useState<CatalogModel[]>([]);
-  const [asrModel, setAsrModel] = useState('');
   const [asrFile, setAsrFile] = useState<File | null>(null);
   const [asrLanguage, setAsrLanguage] = useState('');
   const [asrBusy, setAsrBusy] = useState(false);
@@ -92,14 +85,6 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
 
   useEffect(() => {
     void loadSongs().catch(() => undefined);
-    void fetch('/v1/openrouter/catalog')
-      .then(response => response.json())
-      .then((body: { models?: CatalogModel[] }) => {
-        const recognisers = (body.models ?? []).filter(model => model.capabilities.includes('speech_to_text'));
-        setAsrModels(recognisers);
-        setAsrModel(current => current || recognisers[0]?.id || '');
-      })
-      .catch(() => undefined);
   }, [loadSongs]);
 
   // The separation state, and which stems the chosen track already has.
@@ -147,12 +132,12 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
   };
 
   const transcribe = async () => {
-    if (!asrFile || !asrModel) return;
+    if (!asrFile) return;
     setAsrBusy(true);
     setError(null);
     setAsrText('');
     try {
-      setAsrText(await transcribeWithNativeOpenRouter(asrModel, asrFile, asrLanguage.trim() || undefined));
+      setAsrText(await transcribeWithSelectedProvider(asrFile, asrLanguage.trim() || undefined));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -440,10 +425,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{t('transcribeIntro')}</p>
 
           <div className="mt-3 grid gap-2 md:grid-cols-3">
-            <select value={asrModel} onChange={event => setAsrModel(event.target.value)} className={CONTROL}>
-              {asrModels.length === 0 && <option value="">{t('noSpeechModel')}</option>}
-              {asrModels.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
-            </select>
+            <div className={`${CONTROL} text-zinc-500`}>{t('asrUsesSettings')}</div>
             <button
               type="button"
               onClick={() => filePicker.current?.click()}
@@ -469,7 +451,7 @@ export function StudioToolsPanel({ initialSongId }: { initialSongId?: string | n
           <button
             type="button"
             onClick={() => void transcribe()}
-            disabled={!asrFile || !asrModel || asrBusy}
+            disabled={!asrFile || asrBusy}
             className="mt-3 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             {asrBusy ? <Loader2 size={14} className="animate-spin" /> : <FileAudio size={14} />} {t('transcribeAudio')}

@@ -1242,7 +1242,7 @@ function AppContent() {
   const toggleLike = (songId: string) => {
     const isLiked = likedSongIds.has(songId);
     setLikedSongIds(prev => {
-      const next = new Set(prev);
+      const next = new Set<string>(prev);
       if (isLiked) next.delete(songId);
       else next.add(songId);
       saveLikedSongIds(next);
@@ -1251,7 +1251,7 @@ function AppContent() {
     if (!isLiked) {
       setDislikedSongIds(prev => {
         if (!prev.has(songId)) return prev;
-        const next = new Set(prev);
+        const next = new Set<string>(prev);
         next.delete(songId);
         saveDislikedSongIds(next);
         return next;
@@ -1262,7 +1262,7 @@ function AppContent() {
   const toggleDislike = (songId: string) => {
     const isDisliked = dislikedSongIds.has(songId);
     setDislikedSongIds(prev => {
-      const next = new Set(prev);
+      const next = new Set<string>(prev);
       if (isDisliked) next.delete(songId);
       else next.add(songId);
       saveDislikedSongIds(next);
@@ -1271,7 +1271,7 @@ function AppContent() {
     if (!isDisliked) {
       setLikedSongIds(prev => {
         if (!prev.has(songId)) return prev;
-        const next = new Set(prev);
+        const next = new Set<string>(prev);
         next.delete(songId);
         saveLikedSongIds(next);
         return next;
@@ -1321,13 +1321,13 @@ function AppContent() {
           setSongs(prev => prev.filter(s => !idsToDelete.has(s.id) || failed.includes(s.id)));
 
           setLikedSongIds(prev => {
-            const next = new Set(prev);
+            const next = new Set<string>(prev);
             succeeded.forEach(id => next.delete(id));
             saveLikedSongIds(next);
             return next;
           });
           setDislikedSongIds(prev => {
-            const next = new Set(prev);
+            const next = new Set<string>(prev);
             succeeded.forEach(id => next.delete(id));
             saveDislikedSongIds(next);
             return next;

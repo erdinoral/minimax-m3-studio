@@ -53,6 +53,8 @@ export const CoverRegenModal: React.FC<CoverRegenModalProps> = ({ song, onClose,
   const [models, setModels] = useState<CatalogModel[]>([]);
   const [modelId, setModelId] = useState('');
   const [keyConfigured, setKeyConfigured] = useState<boolean | null>(null);
+  const [localCover, setLocalCover] = useState(false);
+  const [localReady, setLocalReady] = useState(false);
   const [prompt, setPrompt] = useState(() => defaultPrompt(song));
   const [templates, setTemplates] = useState<CoverTemplate[]>([]);
   const [templateId, setTemplateId] = useState('');
@@ -76,10 +78,19 @@ export const CoverRegenModal: React.FC<CoverRegenModalProps> = ({ song, onClose,
     // The model is the one chosen for covers on the provider page; picking the
     // first of four hundred was how this window ended up using a different
     // model from the one the settings showed.
-    void Promise.all([
-      fetch('/v1/openrouter/catalog').then(response => response.json()).catch(() => null),
-      fetch('/v1/configuration').then(response => response.json()).catch(() => null),
-    ]).then(([catalog, configuration]) => {
+    void fetch('/v1/configuration').then(response => {
+      if (!response.ok) throw new Error('Could not read the cover provider.');
+      return response.json();
+    }).then(async configuration => {
+      const local = configuration?.selections?.some((s: { capability: string; mode: string }) => s.capability === 'cover_art' && s.mode === 'local');
+      setLocalCover(Boolean(local));
+      if (local) {
+        const response = await fetch('/v1/covers/local/status');
+        if (!response.ok) throw new Error('Could not read the local cover engine.');
+        setLocalReady((await response.json()).ready === true);
+        return;
+      }
+      const catalog = await fetch('/v1/openrouter/catalog').then(response => response.json());
       const covers = ((catalog?.models ?? []) as CatalogModel[]).filter(model => model.capabilities.includes('cover_art'));
       setModels(covers);
       const chosen = (configuration?.selections ?? []).find(
@@ -87,7 +98,7 @@ export const CoverRegenModal: React.FC<CoverRegenModalProps> = ({ song, onClose,
       )?.cloud_model;
       const suggested = catalog?.suggested?.cover_art as string | undefined;
       setModelId(current => current || chosen || suggested || covers[0]?.id || '');
-    });
+    }).catch(reason => setError(reason instanceof Error ? reason.message : String(reason)));
   }, []);
 
   useEffect(() => {
@@ -132,14 +143,14 @@ export const CoverRegenModal: React.FC<CoverRegenModalProps> = ({ song, onClose,
     }).catch(() => undefined);
   }, []);
 
-  const canGenerate = useMemo(() => keyConfigured === true && Boolean(modelId), [keyConfigured, modelId]);
+  const canGenerate = useMemo(() => localCover ? localReady : keyConfigured === true && Boolean(modelId), [localCover, localReady, keyConfigured, modelId]);
 
   const generate = useCallback(async () => {
     if (!canGenerate || busy) return;
     setBusy('generate');
     setError(null);
     try {
-      const response = await fetch('/v1/openrouter/covers', {
+      const response = await fetch(localCover ? '/v1/covers/local/generate' : '/v1/openrouter/covers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model_id: modelId, prompt: prompt.trim() }),
@@ -147,7 +158,7 @@ export const CoverRegenModal: React.FC<CoverRegenModalProps> = ({ song, onClose,
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.error || `Cover generation failed (${response.status})`);
       const image = body?.body?.data?.[0];
-      if (!image?.b64_json) throw new Error('OpenRouter returned no image data.');
+      if (!image?.b64_json) throw new Error('The cover engine returned no image data.');
       const mediaType = typeof image.media_type === 'string' ? image.media_type : 'image/png';
       setPreview({ base64: image.b64_json, mediaType, dataUrl: `data:${mediaType};base64,${image.b64_json}` });
     } catch (reason) {
@@ -155,7 +166,7 @@ export const CoverRegenModal: React.FC<CoverRegenModalProps> = ({ song, onClose,
     } finally {
       setBusy(null);
     }
-  }, [busy, canGenerate, modelId, prompt]);
+  }, [busy, canGenerate, modelId, prompt, localCover]);
 
   const pickFile = useCallback(async (file: File) => {
     setError(null);
@@ -243,23 +254,24 @@ export const CoverRegenModal: React.FC<CoverRegenModalProps> = ({ song, onClose,
           </div>
 
           <div className="rounded-xl border border-zinc-200 p-3 dark:border-white/10">
-            <label className="text-[11px] font-bold uppercase tracking-wide text-zinc-500">{t('generateWithOpenRouter')}</label>
-            {keyConfigured === false && (
+            <label className="text-[11px] font-bold uppercase tracking-wide text-zinc-500">{t(localCover ? 'localCoverTitle' : 'generateWithOpenRouter')}</label>
+            {localCover && !localReady && <p className="mt-2 text-xs text-amber-600">{t('localCoverInstallFirst')}</p>}
+            {!localCover && keyConfigured === false && (
               <p className="mt-2 flex items-start gap-2 text-xs text-amber-600 dark:text-amber-300">
                 <AlertTriangle size={13} className="mt-0.5 shrink-0" />
                 {t('coverKeyRequired')}
               </p>
             )}
-            {keyConfigured === true && models.length === 0 && (
+            {!localCover && keyConfigured === true && models.length === 0 && (
               <p className="mt-2 flex items-start gap-2 text-xs text-amber-600 dark:text-amber-300">
                 <AlertTriangle size={13} className="mt-0.5 shrink-0" />
                 {t('catalogNoImageModel')}
               </p>
             )}
-            <select value={modelId} onChange={event => setModelId(event.target.value)} disabled={models.length === 0} className={`${CONTROL} mt-2`}>
+            {!localCover && <select value={modelId} onChange={event => setModelId(event.target.value)} disabled={models.length === 0} className={`${CONTROL} mt-2`}>
               {models.length === 0 && <option value="">{t('noImageModel')}</option>}
               {models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
-            </select>
+            </select>}
             {/* A look, written once and reused: the style lives in the
                 template, the track fills in the rest. */}
             <div className="mt-2 flex items-center gap-2">
