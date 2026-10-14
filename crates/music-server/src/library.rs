@@ -24,11 +24,13 @@ fn manual_source()->String{"manual".into()}
 ///
 /// The engine's replay request is sparse — a 60-second track omits the
 /// `duration` field because 60 is the default — so the only dependable source
-/// for a library row is the rendered file. WAV is read from its header; MP3 is
-/// derived from the declared constant bitrate.
+/// for a library row is the rendered file. WAV is read from its header and
+/// FLAC from its STREAMINFO; an MP3 the studio rendered at a declared constant
+/// bitrate from that bitrate; any other file, an imported MP3 among them, from
+/// its own frames.
 pub fn audio_duration_seconds(audio:&[u8],extension:&str,declared_bitrate_kbps:Option<u32>)->Option<f64>{
- match extension{
-  "wav"=>{
+ match (extension,declared_bitrate_kbps){
+  ("wav",_)=>{
    if audio.len()<44||&audio[0..4]!=b"RIFF"||&audio[8..12]!=b"WAVE"{return None}
    let fmt=audio.windows(4).position(|w|w==b"fmt ")?;
    let channels=u16::from_le_bytes(audio.get(fmt+10..fmt+12)?.try_into().ok()?) as f64;
@@ -39,13 +41,28 @@ pub fn audio_duration_seconds(audio:&[u8],extension:&str,declared_bitrate_kbps:O
    let bytes_per_second=rate*channels*(bits/8.0);
    (bytes_per_second>0.0).then(||payload/bytes_per_second)
   }
-  "mp3"=>{
-   let bitrate=declared_bitrate_kbps.unwrap_or(128) as f64*1000.0;
+  ("mp3",Some(kbps))=>{
+   let bitrate=kbps as f64*1000.0;
    (bitrate>0.0).then(||(audio.len() as f64*8.0)/bitrate)
   }
-  "flac"=>crate::flac_out::duration_seconds(audio),
-  _=>None,
+  ("flac",_)=>crate::flac_out::duration_seconds(audio),
+  _=>measured_seconds(audio,extension),
  }
+}
+
+/// Length from the file's own packets, read without decoding them.
+fn measured_seconds(audio:&[u8],extension:&str)->Option<f64>{
+ use symphonia::core::{formats::FormatOptions,io::MediaSourceStream,meta::MetadataOptions,probe::Hint};
+ let mut hint=Hint::new();
+ hint.with_extension(extension);
+ let source=MediaSourceStream::new(Box::new(std::io::Cursor::new(audio.to_vec())),Default::default());
+ let mut format=symphonia::default::get_probe().format(&hint,source,&FormatOptions::default(),&MetadataOptions::default()).ok()?.format;
+ let track=format.default_track()?;
+ let (id,rate,frames)=(track.id,f64::from(track.codec_params.sample_rate?),track.codec_params.n_frames);
+ if let Some(frames)=frames.filter(|frames|*frames>0){return Some(frames as f64/rate)}
+ let mut total=0u64;
+ while let Ok(packet)=format.next_packet(){if packet.track_id()==id{total+=packet.dur}}
+ (total>0).then(||total as f64/rate)
 }
 
 /// A caption is a full style prompt, not a song name. Without an explicit
@@ -196,6 +213,30 @@ impl Library {
   Ok(Some(song))
  }
  pub fn update_song(&self,id:&str,input:SongInput)->Result<Option<Song>>{let Some(mut song)=self.get_song(id)? else{return Ok(None)};song.title=input.title;if input.audio_path.is_some(){song.audio_path=input.audio_path};song.caption=input.caption;song.lyrics=input.lyrics;song.metadata=input.metadata;song.generation_settings=input.generation_settings;song.engine_id=input.engine_id;song.profile_id=input.profile_id;if input.replay_request.is_some(){song.replay_request=input.replay_request};if input.audio_codes.is_some(){song.audio_codes=input.audio_codes};song.source=input.source;song.updated_at=now();self.save_song(&song)?;Ok(Some(song))}
+ /// Imported MP3s stored before their length was read from the frames carry one guessed from the
+ /// file size at 128 kbps; each is measured again, and only a length that disagrees is rewritten.
+ pub fn remeasure_imported_mp3s(&self)->Result<usize>{
+  let ids:Vec<String>={
+   let connection=self.connection.lock().unwrap();
+   let mut statement=connection.prepare("SELECT id FROM songs WHERE source='audio_import' AND lower(audio_path) LIKE '%.mp3'")?;
+   let ids=statement.query_map([],|row|row.get(0))?.collect::<rusqlite::Result<_>>()?;
+   ids
+  };
+  let mut fixed=0;
+  for id in ids{
+   let Some(song)=self.get_song(&id)? else {continue};
+   let Some(path)=self.media_path_for_song(&song) else {continue};
+   let Ok(audio)=fs::read(&path) else {continue};
+   let Some(seconds)=audio_duration_seconds(&audio,"mp3",None) else {continue};
+   if song.metadata.get("duration_seconds").and_then(serde_json::Value::as_f64).is_some_and(|stored|(stored-seconds).abs()<0.5){continue}
+   let mut metadata=song.metadata.clone();
+   if !metadata.is_object(){metadata=serde_json::json!({})}
+   metadata["duration_seconds"]=serde_json::json!(seconds);
+   self.connection.lock().unwrap().execute("UPDATE songs SET metadata_json=?1 WHERE id=?2",params![metadata.to_string(),id])?;
+   fixed+=1;
+  }
+  Ok(fixed)
+ }
  pub fn delete_song(&self,id:&str)->Result<bool>{Ok(self.connection.lock().unwrap().execute("DELETE FROM songs WHERE id=?",[id])?>0)}
  fn save_song(&self,s:&Song)->Result<()> {self.connection.lock().unwrap().execute("INSERT INTO songs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,audio_path=excluded.audio_path,caption=excluded.caption,lyrics=excluded.lyrics,metadata_json=excluded.metadata_json,generation_settings_json=excluded.generation_settings_json,engine_id=excluded.engine_id,profile_id=excluded.profile_id,replay_request_json=excluded.replay_request_json,audio_codes_json=excluded.audio_codes_json,source=excluded.source,updated_at=excluded.updated_at",params![s.id,s.title,s.audio_path,s.caption,s.lyrics,s.metadata.to_string(),s.generation_settings.to_string(),s.engine_id,s.profile_id,s.replay_request.as_ref().map(|v|v.to_string()),s.audio_codes.as_ref().map(|v|v.to_string()),s.source,s.created_at,s.updated_at])?;Ok(())}
  pub fn list_playlists(&self)->Result<Vec<Playlist>>{let c=self.connection.lock().unwrap();let mut s=c.prepare("SELECT id,name,description,created_at,updated_at FROM playlists ORDER BY created_at DESC")?;Ok(s.query_map([],|r|playlist(&c,r))?.collect::<rusqlite::Result<_>>()?)}
@@ -228,6 +269,14 @@ Basic Attributes: bpm is 118. key is F# minor, and scale is minor. Darkwave, Syn
  // 128 kbps MP3: 16 kB is one second.
  assert!((audio_duration_seconds(&vec![0u8;16000],"mp3",Some(128)).unwrap()-1.0).abs()<0.01);
  assert!(audio_duration_seconds(b"not audio","wav",None).is_none());
+}
+
+#[test]fn an_imported_mp3_is_measured_from_its_frames_not_an_assumed_bitrate(){
+ // 77 frames of MPEG-1 Layer III, 320 kbps, 44.1 kHz: 1044 bytes and 1152 samples each.
+ let mut mp3=Vec::new();
+ for _ in 0..77{ mp3.extend_from_slice(&[0xFF,0xFB,0xE0,0x00]); mp3.resize(mp3.len()+1040,0); }
+ let seconds=audio_duration_seconds(&mp3,"mp3",None).unwrap();
+ assert!((seconds-77.0*1152.0/44_100.0).abs()<0.05,"{seconds}");
 }
 #[test]fn a_generated_song_gets_a_readable_title_instead_of_the_whole_caption(){
  assert_eq!(generated_title("cinematic synthwave instrumental, 1980s analog synthesizers, warm bassline, soaring lead melody, polished production"),"cinematic synthwave instrumental, 1980s analog");

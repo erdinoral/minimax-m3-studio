@@ -1175,6 +1175,7 @@ export const zh = {
     removeKey: '删除',
     saveKey: '保存密钥',
     noLocalEngineForCapability: '此版本没有针对该能力的本地引擎。',
+    noCloudModelForCapability: "OpenRouter's catalog has no model for this yet: refresh it in OpenRouter settings.",
     noCatalogModelForCapability: '刷新后的目录中没有支持该能力的模型。',
     openRouterIntro: '云端能力来自实时的 OpenRouter 目录，因此只会提供真正声明所需模态的模型。密钥由本地服务保存。',
     keyFromEnvironment: '来自环境变量的密钥',

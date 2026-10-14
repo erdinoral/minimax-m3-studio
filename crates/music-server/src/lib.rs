@@ -654,6 +654,14 @@ pub async fn serve() -> anyhow::Result<()> {
     // crashed engine. This watches instead: whenever a complete set is on disk
     // and nothing is answering on the engine port, it brings the engine up.
     {
+        let library = state.library.clone();
+        tokio::task::spawn_blocking(move || match library.remeasure_imported_mp3s() {
+            Ok(0) => {}
+            Ok(fixed) => eprintln!("[library] measured the length of {fixed} imported MP3s again"),
+            Err(error) => eprintln!("[library] the imported MP3s were not measured again: {error:#}"),
+        });
+    }
+    {
         let state = state.clone();
         tokio::spawn(async move {
             let mut complained = false;
@@ -2021,12 +2029,21 @@ async fn update_configuration(
     // request verbatim then erased every other choice - which is how a studio
     // with a downloaded engine started answering "the local music engine is not
     // configured" after the assistant was pointed at a local model.
+    let mut changed = Vec::new();
     let configuration = {
         let mut stored = state.configuration.write().await;
         for selection in update.selections {
             match stored.selections.iter_mut().find(|existing| existing.capability == selection.capability) {
-                Some(existing) => *existing = selection,
-                None => stored.selections.push(selection),
+                Some(existing) => {
+                    if existing.mode != selection.mode || existing.local_engine != selection.local_engine || existing.cloud_model != selection.cloud_model {
+                        changed.push(selection.capability);
+                    }
+                    *existing = selection;
+                }
+                None => {
+                    changed.push(selection.capability);
+                    stored.selections.push(selection);
+                }
             }
         }
         stored.clone()
@@ -2035,7 +2052,8 @@ async fn update_configuration(
     // The choice has to reach the code that does the work, or the button is
     // decoration. Speech-to-text is done by the karaoke stack, and the writing
     // assistant has its own provider; both follow this page now.
-    for selection in &configuration.selections {
+    // A page saves every role at once, each as it last read it: replaying an unchanged one would undo a choice made elsewhere since.
+    for selection in configuration.selections.iter().filter(|selection| changed.contains(&selection.capability)) {
         match selection.capability {
             Capability::SpeechToText => {
                 let mut sync = state.lyrics_sync_config.write().await;
@@ -2911,6 +2929,18 @@ async fn update_assistant_settings(
         }
     }
     *state.assistant.write().await = request.clone();
+    // The providers page stores its own copy of this choice and replays it on every save of any role.
+    {
+        let mut configuration = state.configuration.write().await;
+        if let Some(selection) = configuration.selections.iter_mut().find(|selection| selection.capability == Capability::PromptEnhancement) {
+            if request.provider == AssistantProvider::OpenRouter {
+                selection.mode = ExecutionMode::OpenRouter;
+                selection.cloud_model = request.openrouter_model.clone();
+            } else if request.provider != AssistantProvider::None {
+                selection.mode = ExecutionMode::Local;
+            }
+        }
+    }
     let _ = persist_studio_settings(&state).await;
     Ok(Json(serde_json::json!({ "available": request.available(), "provider": request.provider })))
 }
@@ -4865,6 +4895,16 @@ fn initial_configuration() -> StudioConfiguration {
 fn sanitize_persisted_configuration(mut configuration: StudioConfiguration) -> StudioConfiguration {
     let declared = capability_engines(None, false);
     for selection in &mut configuration.selections {
+        // Songs have one local engine and no cloud model to fall back on: an
+        // engine id from an older build, or a cloud choice saved without a
+        // model, would stop every song, so both go back to the studio's engine.
+        if selection.capability == Capability::MusicGeneration {
+            if selection.mode == ExecutionMode::Local || selection.cloud_model.as_deref().is_none_or(|model| model.trim().is_empty()) {
+                selection.mode = ExecutionMode::Local;
+                selection.local_engine = Some(PRIMARY_MUSIC_ENGINE_ID.to_owned());
+            }
+            continue;
+        }
         let engine_serves_capability = selection.local_engine.as_deref().is_some_and(|engine_id| {
             declared.iter().any(|engine| {
                 engine.id == engine_id
