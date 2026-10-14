@@ -220,6 +220,7 @@ struct RunningServer {
     child: Child,
     model_id: String,
     base_url: String,
+    context_size: u32,
 }
 
 impl RunningServer {
@@ -566,7 +567,8 @@ impl AssistantRuntime {
 
         let mut state = self.state.lock().await;
         if let Some(server) = state.server.as_mut() {
-            if server.model_id == model_id && server.is_alive() {
+            // A server started with less room would cut the answer off mid-JSON.
+            if server.model_id == model_id && server.context_size >= context_size && server.is_alive() {
                 return Ok(server.base_url.clone());
             }
         }
@@ -626,7 +628,7 @@ impl AssistantRuntime {
             .with_context(|| format!("start llama-server {}", binary.display()))?;
         music_core::process::adopt(&child);
         let base_url = format!("http://127.0.0.1:{port}/v1");
-        let server = RunningServer { child, model_id: model_id.clone(), base_url: base_url.clone() };
+        let server = RunningServer { child, model_id: model_id.clone(), base_url: base_url.clone(), context_size };
         state.server = Some(server);
         drop(state);
 

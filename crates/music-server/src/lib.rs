@@ -3649,9 +3649,9 @@ async fn assistant_write(
                     let id = config.managed_model.clone().unwrap_or_default();
                     let reasoning = config.reasoning_effort.as_deref();
                     let base = if own_file.trim().is_empty() {
-                        state.assistant_runtime.start(&id, 8192, reasoning).await
+                        state.assistant_runtime.start(&id, ASSISTANT_CONTEXT, reasoning).await
                     } else {
-                        state.assistant_runtime.start_path(std::path::Path::new(own_file.trim()), 8192, reasoning).await
+                        state.assistant_runtime.start_path(std::path::Path::new(own_file.trim()), ASSISTANT_CONTEXT, reasoning).await
                     }
                     .map_err(|error| api_error(StatusCode::BAD_GATEWAY, error.to_string()))?;
                     (base, if own_file.trim().is_empty() { id } else { own_file })
