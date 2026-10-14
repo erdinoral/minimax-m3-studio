@@ -570,6 +570,10 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     setDitCfg(asString('dit_cfg'));
     setPeakClip(asString('peak_clip'));
     setMp3Bitrate(asString('mp3_bitrate'));
+    // the song's own seeds, kept: the random switch would throw the sound seed away
+    setLmSeed(asString('lm_seed'));
+    setSeed(asString('seed'));
+    setRandomizeSeed(asString('seed') === '');
     if (typeof settings.output_format === 'string') setFormat(settings.output_format as Music3Request['output_format']);
   }, [initialData]);
 
@@ -664,6 +668,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       setDitCfg(asString(parsed.dit_cfg));
       setSynthBatch(asString(parsed.synth_batch_size));
       setSeed(asString(parsed.seed));
+      setRandomizeSeed(asString(parsed.seed) === '');
       setPeakClip(asString(parsed.peak_clip));
       setMp3Bitrate(asString(parsed.mp3_bitrate));
       if (typeof parsed.audio_codes === 'string') setAudioCodes(parsed.audio_codes);
