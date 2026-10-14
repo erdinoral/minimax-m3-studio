@@ -3,7 +3,8 @@
 //! For FLAC the engine is asked for its float WAV, which it hands over at the
 //! level the model made it (the engine skips its peak normalisation for
 //! float output), and the studio encodes that once into 24-bit FLAC with the
-//! sample count and MD5 in the stream header.
+//! sample count and MD5 in the stream header. Every WAV the engine sends is
+//! checked first, so a broken render is refused instead of kept.
 
 use anyhow::{anyhow, bail, Context, Result};
 use flacenc::component::BitRepr;
@@ -51,10 +52,24 @@ pub fn encode(samples: &[f32], channels: u16, rate: u32) -> Result<Vec<u8>> {
     Ok(sink.as_slice().to_vec())
 }
 
-/// The engine's WAV as FLAC.
-pub fn wav_to_flac(wav: &[u8]) -> Result<Vec<u8>> {
-    let (samples, channels, rate) = read_wav(wav)?;
-    encode(&samples, channels, rate)
+/// What is wrong with a track the engine sent, if anything: samples that are
+/// not numbers, silence, or one level held from start to end.
+pub fn output_problem(samples: &[f32]) -> Option<&'static str> {
+    let (mut low, mut high) = (f32::INFINITY, f32::NEG_INFINITY);
+    for sample in samples {
+        if !sample.is_finite() {
+            return Some("samples that are not numbers");
+        }
+        low = low.min(*sample);
+        high = high.max(*sample);
+    }
+    if low > high || low.abs().max(high.abs()) < 1e-5 {
+        Some("silence")
+    } else if high - low < 1e-6 {
+        Some("one level held from start to end")
+    } else {
+        None
+    }
 }
 
 /// Playable length from the STREAMINFO block every FLAC starts with.
@@ -86,9 +101,21 @@ mod tests {
     #[test]
     fn a_float_wav_becomes_a_flac_of_the_same_length() {
         let samples: Vec<f32> = (0..44_100 * 2).map(|index| ((index / 2) as f32 * 0.05).sin() * 0.5).collect();
-        let flac = wav_to_flac(&float_wav(&samples, 44_100)).unwrap();
+        let (read, channels, rate) = read_wav(&float_wav(&samples, 44_100)).unwrap();
+        let flac = encode(&read, channels, rate).unwrap();
         assert_eq!(&flac[..4], b"fLaC");
         assert!((duration_seconds(&flac).unwrap() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_broken_engine_track_is_named() {
+        let tone: Vec<f32> = (0..4_800).map(|index| 0.3 * (index as f32 * 0.05).sin()).collect();
+        assert_eq!(output_problem(&tone), None);
+        assert_eq!(output_problem(&[0.0; 4_800]), Some("silence"));
+        assert_eq!(output_problem(&[-1.0; 4_800]), Some("one level held from start to end"));
+        let mut broken = tone.clone();
+        broken[100] = f32::NAN;
+        assert_eq!(output_problem(&broken), Some("samples that are not numbers"));
     }
 
     #[test]
