@@ -69,6 +69,7 @@ import { StudioOffline } from './components/StudioOffline';
 import { StudioToolsPanel } from './components/StudioToolsPanel';
 import { createNativePlaylist, deleteNativeSong, loadNativeLibrarySongs, loadNativePlaylists, updateNativePlaylist } from './services/nativeLibrary';
 import { openCoverFromSong } from './services/openCover';
+import { stageDetail, type StageClock } from './services/stageDetail';
 import {
   buildPreferenceInstruction,
   loadDislikedSongIds,
@@ -1082,6 +1083,7 @@ function AppContent() {
   /// mm-server reports a phase, not a percentage, but its log ring counts the
   /// autoregressive frames and the flow-matching steps. Reading that gives the
   /// generating card a real progress bar instead of an invented one.
+  const stageClock = useRef<StageClock | null>(null);
   useEffect(() => {
     if (activeJobCount === 0) return;
     let cancelled = false;
@@ -1094,6 +1096,7 @@ function AppContent() {
         const lines = body.lines ?? [];
         let progress: number | undefined;
         let stage: string | undefined;
+        let detail = '';
         for (let index = lines.length - 1; index >= 0; index -= 1) {
           const frame = /\[AR\] Frame (\d+)\/(\d+)/.exec(lines[index]);
           if (frame) {
@@ -1101,12 +1104,14 @@ function AppContent() {
             // the diffusion pass the second; both are reported by the engine.
             progress = (Number(frame[1]) / Number(frame[2])) * 0.5;
             stage = 'stageGeneratingAudio';
+            detail = stageDetail(`${frame[1]}/${frame[2]}`, 'semantic', stageClock);
             break;
           }
           const step = /\[DiT\] .*?(\d+)\/(\d+)/.exec(lines[index]);
           if (step) {
             progress = 0.5 + (Number(step[1]) / Number(step[2])) * 0.5;
             stage = 'stageGeneratingAudio';
+            detail = stageDetail(`${step[1]}/${step[2]}`, 'acoustic', stageClock);
             break;
           }
         }
@@ -1125,8 +1130,8 @@ function AppContent() {
           );
           return prev.map(song => {
             if (!song.isGenerating || !song.jobId) return song;
-            if (song.id === active.id) return { ...song, progress, stage: stage ?? song.stage };
-            return { ...song, progress: 0, stage: 'stageWaitingInQueue' };
+            if (song.id === active.id) return { ...song, progress, stage: stage ?? song.stage, stageDetail: detail };
+            return { ...song, progress: 0, stage: 'stageWaitingInQueue', stageDetail: undefined };
           });
         });
       } catch {
