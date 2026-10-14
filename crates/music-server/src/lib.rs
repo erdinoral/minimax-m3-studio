@@ -13,6 +13,7 @@ mod lyrics_sync;
 mod credentials;
 mod model_manager;
 mod presets;
+mod prompt_check;
 mod request_log;
 mod resources;
 mod chunked;
@@ -627,6 +628,7 @@ pub async fn serve() -> anyhow::Result<()> {
         .route("/v1/local-models/music", get(local_music_model_catalog))
         .route("/v1/music/jobs", get(list_music_jobs).post(create_music_job))
         .route("/v1/music/replay", post(replay_music_job))
+        .route("/v1/music/prompt-check", post(check_music_prompt))
         .route("/v1/music/extend", post(extend_music_job))
         .route(
             "/v1/music/jobs/{job_id}",
@@ -4222,6 +4224,14 @@ async fn create_music_job(
             return (StatusCode::ACCEPTED, Json(job));
         }
     }
+    let text = |field: &str| mm_request.get(field).and_then(Value::as_str).unwrap_or_default().to_owned();
+    match state.music_server.tokenize(&text("caption"), &text("lyrics")).await {
+        Ok(tokens) if tokens > prompt_check::MAX_PROMPT_TOKENS => {
+            return (StatusCode::BAD_REQUEST, Json(failed_request_job(request, engine_id, prompt_check::too_long_message(tokens))));
+        }
+        Ok(_) => {}
+        Err(error) => eprintln!("[prompt-check] the engine did not count the prompt: {error:#}"),
+    }
     match state.music_server.submit(mm_request).await {
         Ok(remote) => {
             let job = MusicJob {
@@ -4257,6 +4267,35 @@ async fn create_music_job(
             (StatusCode::ACCEPTED, Json(job))
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct PromptCheckRequest {
+    #[serde(default)]
+    caption: String,
+    #[serde(default)]
+    lyrics: String,
+    #[serde(default)]
+    instrumental: bool,
+}
+
+/// What the engine would do with a caption and lyrics before it is asked to sing them: the
+/// lyrics lines whose words it drops, a song that never names its singer's gender, and the
+/// prompt against the 5000-token budget. A running engine counts the tokens itself; without
+/// one the count is an estimate and says so.
+async fn check_music_prompt(State(state): State<AppState>, Json(request): Json<PromptCheckRequest>) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
+    let (tokens, exact) = if state.music_server.health().await {
+        let counted = state
+            .music_server
+            .tokenize(&request.caption, &request.lyrics)
+            .await
+            .map_err(|error| api_error(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        (counted, true)
+    } else {
+        (prompt_check::estimate_tokens(&request.caption, &request.lyrics), false)
+    };
+    let found = prompt_check::check(&request.caption, &request.lyrics, request.instrumental, tokens, exact);
+    Ok(Json(serde_json::to_value(found).map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?))
 }
 
 async fn replay_music_job(
@@ -4762,6 +4801,13 @@ impl MmServerClient {
 
     async fn props(&self) -> anyhow::Result<Value> {
         self.json_response(self.http.get(self.url("/props")).send().await?).await
+    }
+
+    /// The prompt length of a caption and lyrics, counted by the engine's own tokenizer.
+    async fn tokenize(&self, caption: &str, lyrics: &str) -> anyhow::Result<u64> {
+        let body = serde_json::json!({ "caption": caption, "lyrics": lyrics });
+        let answer: Value = self.json_response(self.http.post(self.url("/tokenize")).json(&body).send().await?).await?;
+        answer.get("tokens").and_then(Value::as_u64).ok_or_else(|| anyhow::anyhow!("the engine's /tokenize answered without a count"))
     }
 
     /// Upstream `GET /logs` is an endless SSE stream: it replays the server's

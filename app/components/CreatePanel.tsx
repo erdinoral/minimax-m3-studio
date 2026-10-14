@@ -4,6 +4,7 @@ import { captionCraftInstruction } from '../services/captionCraft';
 import { englishGenreLyricGuide, englishLyricsPolishInstruction, usableEnglishLyricsEdit, useEnglishLyricsCraft } from '../services/lyricsQuality';
 import { currentSynthesisProfile, synthesisProfileValues, type SynthesisProfile } from '../services/synthesisProfile';
 import { audioExtension } from '../services/audioFile';
+import { usePromptCheck } from '../services/promptCheck';
 import { AlertTriangle, ChevronDown, CircleAlert, Dices, FileAudio, FolderOpen, Loader2, RotateCcw, Save, Sparkles, Square, Trash2, Upload, Wand2, Settings2 } from 'lucide-react';
 import type { Music3Request, Song } from '../types';
 import { useI18n } from '../context/I18nContext';
@@ -88,8 +89,6 @@ type EngineCatalog = {
 
 /** 9000 acoustic frames at 25 frames per second, as the model card states. */
 const MAX_DURATION_SECONDS = 360;
-/** The tokenized caption + lyrics budget the engine enforces at submit. */
-const MAX_PROMPT_TOKENS = 5000;
 
 const PROFILE_LABEL: Record<string, string> = {
   native: 'Full Native',
@@ -115,9 +114,6 @@ const numberOrUndefined = (value: string): number | undefined => {
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : undefined;
 };
-
-/** A rough token estimate, only used to warn before the engine rejects it. */
-const estimateTokens = (text: string) => Math.ceil(text.trim().length / 3.6);
 
 const ICON =
   'rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-200 hover:text-black dark:hover:bg-white/10 dark:hover:text-white disabled:opacity-40';
@@ -401,7 +397,18 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const defaults = catalog?.defaults ?? {};
   const placeholder = (key: string) => (defaults[key] === undefined ? '' : String(defaults[key]));
   const caption = joinCaption(globalMetadata, vocalDetails, arrangement);
-  const promptTokens = estimateTokens(caption) + estimateTokens(lyrics);
+  const sentCaption = useMemo(() => {
+    const withStyles = appendStylesToCaption(caption, stylesText);
+    return excludeStyles.trim() ? `${withStyles}\nExclude: ${excludeStyles.trim()}`.trim() : withStyles;
+  }, [caption, stylesText, excludeStyles]);
+  const promptQuery = usePromptCheck(sentCaption, lyrics, instrumental || mode === 'instrumental');
+  const promptCheck = promptQuery.data;
+  const overBudget = promptCheck?.issues.some(issue => issue.code === 'prompt_too_long') === true;
+  // Studio lyrics may be a few keywords and an empty caption the assistant fills in;
+  // who sings is only worth asking about once both are really written.
+  const lyricsWritten = /^\s*\[[^\]]+\]/m.test(lyrics);
+  const promptWarnings = (promptCheck?.issues ?? []).filter(issue =>
+    issue.code === 'words_on_tag_line' || (issue.code === 'vocal_gender_missing' && lyricsWritten && caption.trim() !== ''));
 
   const profileLabel = useMemo(() => {
     if (setup?.selected_component_ids?.length) return t('customSet');
@@ -1414,11 +1421,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
           captionText = appendStylesToCaption(captionText, working.stylesText);
           if (working.excludeStyles.trim()) captionText = `${captionText}\nExclude: ${working.excludeStyles.trim()}`.trim();
-          if (estimateTokens(captionText) + estimateTokens(lyricsForRequest) > MAX_PROMPT_TOKENS) {
-            failQueuedCreate(t('promptTooLong'));
-            return;
-          }
-
           updateTempSongForClick?.(tempId, {
             title: titleForRequest || preview,
             lyrics: lyricsForRequest,
@@ -1460,7 +1462,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     if (assisting) return;
     if (!lyrics.trim()) { setError(t('lyricsRequired')); return; }
     if (!caption.trim()) { setError(t('captionRequired')); return; }
-    if (promptTokens > MAX_PROMPT_TOKENS) { setError(t('promptTooLong')); return; }
+    if (overBudget) { setError(t('promptTooLong')); return; }
     setError(null);
     onGenerate(buildRequest({ instrumental: false, lyrics }));
   };
@@ -1479,9 +1481,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     setSteps(''); setDitCfg(''); setSynthBatch(''); setSeed(''); setRandomizeSeed(true);
     setPeakClip(''); setMp3Bitrate('320'); setFormat('flac'); setModels({});
   };
-
-  const overBudget = promptTokens > MAX_PROMPT_TOKENS;
-
   return (
     <section className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-zinc-50 text-zinc-900 dark:bg-suno-panel dark:text-white">
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain custom-scrollbar">
@@ -1812,9 +1811,9 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               <>
                 <span
                   className={`rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums ${overBudget ? 'bg-rose-500/10 text-rose-600 dark:text-rose-300' : 'bg-zinc-200/70 text-zinc-500 dark:bg-white/10 dark:text-zinc-400'}`}
-                  title={`${t('promptBudget')} — ${t('caption')}: ${estimateTokens(caption)}, ${t('lyrics')}: ${estimateTokens(lyrics)}`}
+                  title={promptQuery.error ? `${t('promptBudget')} — ${promptQuery.error.message}` : promptCheck?.exact === false ? `${t('promptBudget')} — ${t('promptBudgetEstimated')}` : t('promptBudget')}
                 >
-                  {t('promptBudgetShort')} {promptTokens} / {MAX_PROMPT_TOKENS}
+                  {t('promptBudgetShort')} {promptQuery.error ? '!' : promptCheck ? `${promptCheck.exact ? '' : '≈'}${promptCheck.tokens} / ${promptCheck.limit}` : '…'}
                 </span>
                 {assistantReady && (
                   <button
@@ -1843,6 +1842,16 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               {mode === 'cover' && coverKind === 'melody' ? t('coverMelodyLyricsLocked') : mode === 'studio' ? t('lyricsHintAdvanced') : t('lyricsHint')}
             </p>
             {overBudget && <p className="mt-1 text-[11px] leading-4 text-rose-600 dark:text-rose-300">{t('promptTooLong')}</p>}
+            {promptWarnings.map(issue => (
+              <p key={`${issue.code}-${issue.line ?? 0}`} className="mt-1 flex gap-1.5 text-[11px] leading-4 text-amber-700 dark:text-amber-300">
+                <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                <span>
+                  {issue.code === 'words_on_tag_line'
+                    ? t('lyricsWordsOnTagLine').replace('{line}', String(issue.line)).replace('{text}', () => issue.text ?? '')
+                    : t('captionVocalGenderMissing')}
+                </span>
+              </p>
+            ))}
           </Card>
           )}
 
