@@ -38,3 +38,6 @@ tokio = { workspace = true, features = ["process"] }
 tower-http.workspace = true
 uuid.workspace = true
 zip.workspace = true
+flacenc = "0.5.1"
+metaflac = "0.2.8"
+hound = "3.5.1"

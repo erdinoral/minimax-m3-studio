@@ -8,6 +8,7 @@ import { useI18n } from '../context/I18nContext';
 import { SongDropdownMenu } from './SongDropdownMenu';
 import { AlbumCover } from './AlbumCover';
 import { openStems } from '../services/openStems';
+import { audioExtension } from '../services/audioFile';
 import { captionSummary } from '../services/examples';
 import { getCurrentLrcIndex, parseLrc } from '../services/lrc-parser';
 
@@ -157,7 +158,7 @@ export const Player: React.FC<PlayerProps> = ({
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `${currentSong.title || 'song'}.mp3`;
+            link.download = `${currentSong.title || 'song'}.${audioExtension(blob.type)}`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);

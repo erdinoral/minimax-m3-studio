@@ -349,7 +349,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                      <input
                          ref={importInput}
                          type="file"
-                         accept="audio/mpeg,audio/wav,.mp3,.wav"
+                         accept="audio/mpeg,audio/wav,audio/flac,.mp3,.wav,.flac"
                          multiple
                          className="hidden"
                          onChange={(event) => { void importAudio(event.target.files); event.target.value = ''; }}

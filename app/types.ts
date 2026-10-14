@@ -84,7 +84,7 @@ export interface Music3Request {
   dit_cfg: number;
   /** Percentile peak normalisation; 0 disables clipping. WAV32 ignores it. */
   peak_clip: number;
-  output_format: 'mp3' | 'wav16' | 'wav24' | 'wav32';
+  output_format: 'flac' | 'mp3' | 'wav16' | 'wav24' | 'wav32';
   mp3_bitrate: number;
   /** Library title only — never sent to the engine. */
   title?: string;

@@ -4,7 +4,8 @@ import { currentSynthesisProfile, synthesisProfileValues } from './synthesisProf
 describe('synthesis profiles', () => {
   it('keeps the engine-supported 30-step default and changes actual output format', () => {
     expect(currentSynthesisProfile('', 'mp3')).toBe('standard');
-    expect(synthesisProfileValues('lossless')).toEqual({ steps: '30', format: 'wav24' });
+    expect(synthesisProfileValues('lossless')).toEqual({ steps: '30', format: 'flac' });
+    expect(currentSynthesisProfile('', 'flac')).toBe('lossless');
     expect(synthesisProfileValues('standard')).toEqual({ steps: '30', format: 'mp3' });
   });
   it('does not claim that an arbitrary step count is a quality preset', () => {

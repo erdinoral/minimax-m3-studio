@@ -1,12 +1,12 @@
-//! ID3 tags on the MP3s the studio writes.
+//! Tags on the MP3s and FLACs the studio writes.
 //!
 //! mm-server returns bare audio: no title, no artist, no cover, no lyrics. A
 //! file like that lands in a player as "instrumental-04" with a blank square,
 //! which is the wrong answer for a track that has all of those things stored
 //! next to it. ACE-Step Studio tagged its exports, and so does this one.
 //!
-//! Only MP3 is tagged - WAV has no equivalent container the studio writes, and
-//! a malformed chunk is worse than none. Tagging never fails a request: if a
+//! MP3 gets ID3v2.4 and FLAC Vorbis comments with a picture block. WAV is not
+//! tagged - a malformed chunk is worse than none. Tagging never fails a request: if a
 //! tag cannot be written the audio is still the audio, and the caller says so
 //! in the log rather than losing the track.
 
@@ -63,6 +63,35 @@ pub fn write_mp3_tags(path: &Path, tags: &TrackTags) -> anyhow::Result<()> {
     // 2.4 is what players have read for twenty years, and what the id3 crate
     // writes without the v2.3 text-encoding caveats.
     tag.write_to_path(path, Version::Id3v24)?;
+    Ok(())
+}
+
+/// Writes Vorbis comments and a front-cover picture onto a FLAC in place.
+pub fn write_flac_tags(path: &Path, tags: &TrackTags) -> anyhow::Result<()> {
+    let mut tag = metaflac::Tag::read_from_path(path)?;
+    tag.remove_blocks(metaflac::BlockType::VorbisComment);
+    let comments = tag.vorbis_comments_mut();
+    comments.set_title(vec![tags.title.clone()]);
+    if !tags.album.is_empty() {
+        comments.set_album(vec![tags.album.clone()]);
+    }
+    if !tags.artist.is_empty() {
+        comments.set_artist(vec![tags.artist.clone()]);
+    }
+    if let Some(genre) = tags.genre.as_deref().filter(|value| !value.trim().is_empty()) {
+        comments.set_genre(vec![genre.to_string()]);
+    }
+    if let Some(bpm) = tags.bpm {
+        comments.set("BPM", vec![bpm.to_string()]);
+    }
+    if let Some(lyrics) = tags.lyrics.as_deref().filter(|value| !value.trim().is_empty()) {
+        comments.set_lyrics(vec![lyrics.to_string()]);
+    }
+    tag.remove_picture_type(metaflac::block::PictureType::CoverFront);
+    if let Some((media_type, image)) = tags.cover.as_ref() {
+        tag.add_picture(media_type.clone(), metaflac::block::PictureType::CoverFront, image.clone());
+    }
+    tag.save()?;
     Ok(())
 }
 

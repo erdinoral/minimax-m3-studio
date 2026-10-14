@@ -8,6 +8,7 @@ mod audio_pcm;
 mod cuda_build;
 mod downloads;
 mod engine_runtime;
+mod flac_out;
 mod lyrics_sync;
 mod credentials;
 mod model_manager;
@@ -716,6 +717,7 @@ async fn library_media(State(state): State<AppState>, Path(song_id): Path<String
     let content_type = match path.extension().and_then(|extension| extension.to_str()).map(|extension| extension.to_ascii_lowercase()).as_deref() {
         Some("mp3") => "audio/mpeg",
         Some("wav") => "audio/wav",
+        Some("flac") => "audio/flac",
         _ => return Err(api_error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "Stored song has an unsupported audio extension".into())),
     };
     let total = bytes.len();
@@ -1910,7 +1912,8 @@ async fn tag_stored_song(state: &AppState, song_id: &str) {
     // `audio_path` is a full path, not a filename: resolve it the way playback
     // does, or tagging silently skips every track.
     let Some(audio_path) = state.library.media_path_for_song(&song) else { return };
-    if audio_path.extension().and_then(|value| value.to_str()).map(str::to_lowercase).as_deref() != Some("mp3") {
+    let extension = audio_path.extension().and_then(|value| value.to_str()).map(str::to_lowercase);
+    if !matches!(extension.as_deref(), Some("mp3" | "flac")) {
         return;
     }
     let cover = state
@@ -1927,7 +1930,8 @@ async fn tag_stored_song(state: &AppState, song_id: &str) {
         bpm: tagging::bpm_from_caption(&song.caption),
         cover,
     };
-    if let Err(error) = tagging::write_mp3_tags(&audio_path, &tags) {
+    let written = if extension.as_deref() == Some("flac") { tagging::write_flac_tags(&audio_path, &tags) } else { tagging::write_mp3_tags(&audio_path, &tags) };
+    if let Err(error) = written {
         eprintln!("could not tag {}: {error}", audio_path.display());
     }
 }
@@ -4274,7 +4278,7 @@ fn prepare_replay_synthesis(mut replay: Value, overrides: &ReplayMusicJobRequest
     if let Some(seed) = overrides.seed { object.insert("seed".into(), Value::from(seed)); }
     if let Some(dit_cfg) = overrides.dit_cfg { if !dit_cfg.is_finite() { return Err("dit_cfg must be finite".into()); } object.insert("dit_cfg".into(), Value::from(dit_cfg)); }
     if let Some(format) = &overrides.output_format {
-        if !matches!(format.as_str(), "mp3" | "wav16" | "wav24" | "wav32") { return Err("output_format must be mp3, wav16, wav24, or wav32".into()); }
+        validate_output_format(format)?;
         object.insert("output_format".into(), Value::String(format.clone()));
     }
     if let Some(models) = &overrides.models {
@@ -4510,8 +4514,9 @@ async fn import_completed_mm_result(state: &AppState, job: &MusicJob, job_id: &s
     let tracks = mm_result::parse_multipart_result(&result.content_type, &result.body)?;
     let profile_id = state.selected_profile_id.read().await.clone();
     let mut imported = Vec::with_capacity(tracks.len());
+    let wanted_flac = output_format(&job.generation_settings) == "flac";
     for track in tracks {
-        let replay = track.replay_request;
+        let mut replay = track.replay_request;
         let caption = replay.get("caption").and_then(Value::as_str).filter(|value| !value.is_empty()).context("replay request has no caption")?.to_owned();
         let lyrics = replay.get("lyrics").and_then(Value::as_str).context("replay request has no lyrics")?.to_owned();
         let audio_codes = replay.get("audio_codes").filter(|value| value.as_str().is_some_and(|value| !value.is_empty())).context("replay request has no audio_codes")?.clone();
@@ -4536,17 +4541,29 @@ async fn import_completed_mm_result(state: &AppState, job: &MusicJob, job_id: &s
         // The replay request is sparse: upstream omits any field that still
         // holds its default, so a 60-second track has no "duration" key at all.
         // Take the length from the job that was actually submitted.
-        let extension = mm_result::audio_extension(&track.audio_content_type)?;
+        let mut extension = mm_result::audio_extension(&track.audio_content_type)?;
+        let mut audio = track.audio;
+        if wanted_flac && extension == "wav" {
+            audio = flac_out::wav_to_flac(&audio)?;
+            extension = "flac";
+            // a replay of this song asks for FLAC again, not the float WAV it was sent as
+            for settings in [&mut generation_settings, &mut replay] {
+                if let Some(fields) = settings.as_object_mut() {
+                    fields.insert("output_format".into(), Value::from("flac"));
+                    fields.remove("peak_clip");
+                }
+            }
+        }
         let create_mode = generation_settings.get("create_mode").cloned();
         let metadata = serde_json::json!({
             "duration_seconds": library::audio_duration_seconds(
-                &track.audio,
+                &audio,
                 extension,
                 replay.get("mp3_bitrate").and_then(Value::as_u64).map(|value| value as u32),
             ),
             "seed": replay.get("seed"),
             "lm_seed": replay.get("lm_seed"),
-            "output_format": replay.get("output_format"),
+            "output_format": generation_settings.get("output_format"),
             "cover_prompt": job.cover_prompt.clone(),
             "create_mode": create_mode,
         });
@@ -4554,7 +4571,7 @@ async fn import_completed_mm_result(state: &AppState, job: &MusicJob, job_id: &s
             title: job.title.clone(), metadata, caption, lyrics, generation_settings, replay_request: Some(replay), audio_codes: Some(audio_codes),
             engine_id: job.engine_id.clone(), profile_id: profile_id.clone(),
             source: "local_generation".into(),
-            audio_extension: extension, audio: track.audio,
+            audio_extension: extension, audio,
         })?;
         let audio_url = format!("/v1/library/media/{}", imported_song.song.id);
         tag_stored_song(&state, &imported_song.song.id).await;
@@ -4627,6 +4644,32 @@ async fn local_music_model_catalog(
         )
     })?;
     Ok(Json(LocalMusicModelCatalog { engine_id, catalog }))
+}
+
+/// The format a song is kept in; FLAC when none was asked for.
+fn output_format(settings: &Value) -> &str {
+    settings.get("output_format").and_then(Value::as_str).unwrap_or("flac")
+}
+
+fn validate_output_format(format: &str) -> Result<(), String> {
+    if matches!(format, "flac" | "mp3" | "wav16" | "wav24" | "wav32") {
+        Ok(())
+    } else {
+        Err("output_format must be one of: flac, mp3, wav16, wav24, wav32".into())
+    }
+}
+
+/// What the engine is sent: a FLAC song is asked for as float WAV, which the
+/// engine does not normalise, and the studio encodes it on import.
+fn engine_submission(request: &Value) -> Value {
+    let mut sent = request.clone();
+    if output_format(request) == "flac" {
+        if let Some(fields) = sent.as_object_mut() {
+            fields.insert("output_format".into(), Value::from("wav32"));
+            fields.remove("peak_clip");
+        }
+    }
+    sent
 }
 
 impl MmServerClient {
@@ -4709,6 +4752,7 @@ impl MmServerClient {
     }
 
     async fn submit(&self, request: Value) -> anyhow::Result<MmServerSubmitResponse> {
+        let request = engine_submission(&request);
         let response = self.send(|| self.http.post(self.url("/synth")).json(&request), false).await?;
         self.json_response(response).await
     }
@@ -4857,9 +4901,7 @@ fn mm_request_from(request: &CreateMusicJobRequest, selected_profile_id: Option<
         }
     }
     if let Some(output_format) = request.output_format.as_deref() {
-        if !matches!(output_format, "mp3" | "wav16" | "wav24" | "wav32") {
-            return Err("output_format must be one of: mp3, wav16, wav24, wav32".into());
-        }
+        validate_output_format(output_format)?;
     }
     let lyrics = {
         let trimmed = request.lyrics.trim();
@@ -5112,6 +5154,16 @@ mod tests {
     }
 
     #[test]
+    fn a_flac_song_is_asked_of_the_engine_as_float_wav_without_normalising() {
+        let sent = engine_submission(&serde_json::json!({ "caption": "x", "output_format": "flac", "peak_clip": 10 }));
+        assert_eq!(sent["output_format"], "wav32");
+        assert!(sent.get("peak_clip").is_none());
+        assert_eq!(engine_submission(&serde_json::json!({ "caption": "x" }))["output_format"], "wav32");
+        let mp3 = serde_json::json!({ "caption": "x", "output_format": "mp3", "peak_clip": 10 });
+        assert_eq!(engine_submission(&mp3), mp3);
+    }
+
+    #[test]
     fn request_rejects_legacy_audio_formats_not_supported_by_mm_server() {
         let error = mm_request_from(&CreateMusicJobRequest {
             cover_prompt: None,
@@ -5128,7 +5180,7 @@ mod tests {
             synth_batch_size: None,
             dit_cfg: Some(1.7),
             peak_clip: None,
-            output_format: Some("flac".into()),
+            output_format: Some("ogg".into()),
             mp3_bitrate: None,
             models: Some(Mm3ModelSelection {
                 lm_model: Some("lm.gguf".into()),

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AlertTriangle, Loader2, Repeat, X } from 'lucide-react';
-import { Song } from '../types';
+import { Music3Request, Song } from '../types';
 import { useI18n } from '../context/I18nContext';
 
 /**
@@ -30,8 +30,8 @@ export const ReplayModal: React.FC<ReplayModalProps> = ({ song, onClose, onQueue
   const [steps, setSteps] = useState<number>(numberOr('steps', 30));
   const [ditCfg, setDitCfg] = useState<number>(numberOr('dit_cfg', 1.7));
   const [seed, setSeed] = useState<string>(typeof settings.seed === 'number' ? String(settings.seed) : '');
-  const [format, setFormat] = useState<'mp3' | 'wav16' | 'wav24' | 'wav32'>(
-    typeof settings.output_format === 'string' ? (settings.output_format as 'mp3') : 'mp3',
+  const [format, setFormat] = useState<Music3Request['output_format']>(
+    typeof settings.output_format === 'string' ? (settings.output_format as Music3Request['output_format']) : 'flac',
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +92,7 @@ export const ReplayModal: React.FC<ReplayModalProps> = ({ song, onClose, onQueue
             <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
               <span className="mb-1.5 block">{t('outputFormat')}</span>
               <select value={format} onChange={event => setFormat(event.target.value as typeof format)} className={CONTROL}>
+                <option value="flac">FLAC</option>
                 <option value="mp3">MP3</option>
                 <option value="wav16">WAV 16-bit</option>
                 <option value="wav24">WAV 24-bit</option>

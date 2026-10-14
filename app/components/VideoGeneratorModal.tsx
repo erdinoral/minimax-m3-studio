@@ -6,6 +6,7 @@ import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { createHardwareEncoder, type HardwareEncoder } from '../services/videoEncoder';
 import { lineProgress } from '../services/lrc-parser';
+import { audioExtension as audioFileExtension } from '../services/audioFile';
 import { useResponsive } from '../context/ResponsiveContext';
 
 interface VideoGeneratorModalProps {
@@ -1206,9 +1207,10 @@ export const VideoGeneratorModal: React.FC<VideoGeneratorModalProps> = ({ isOpen
         coreURL: await toBlobURL('/ffmpeg/ffmpeg-core.js', 'text/javascript'),
         wasmURL: await toBlobURL('/ffmpeg/ffmpeg-core.wasm', 'application/wasm'),
       });
-      const audioExtension = audioSource.toLowerCase().includes('.wav') ? 'wav' : 'mp3';
+      const audioResponse = await fetch(audioSource);
+      const audioExtension = audioFileExtension(audioResponse.headers.get('content-type') ?? '');
       await ffmpeg.writeFile('video.mp4', silent);
-      await ffmpeg.writeFile(`audio.${audioExtension}`, new Uint8Array(await (await fetch(audioSource)).arrayBuffer()));
+      await ffmpeg.writeFile(`audio.${audioExtension}`, new Uint8Array(await audioResponse.arrayBuffer()));
       await ffmpeg.exec([
         '-i', 'video.mp4',
         '-i', `audio.${audioExtension}`,
@@ -1243,9 +1245,11 @@ export const VideoGeneratorModal: React.FC<VideoGeneratorModalProps> = ({ isOpen
     }
 
     const audioSource = song.audioUrl || (song as unknown as { audio_url?: string }).audio_url || '';
-    const audioExtension = audioSource.toLowerCase().includes('.wav') ? 'wav' : 'mp3';
+    let audioExtension = 'mp3';
     if (audioSource) {
-      const audioBytes = new Uint8Array(await (await fetch(audioSource)).arrayBuffer());
+      const audioResponse = await fetch(audioSource);
+      audioExtension = audioFileExtension(audioResponse.headers.get('content-type') ?? '');
+      const audioBytes = new Uint8Array(await audioResponse.arrayBuffer());
       await ffmpeg.writeFile(`audio.${audioExtension}`, audioBytes);
     }
 

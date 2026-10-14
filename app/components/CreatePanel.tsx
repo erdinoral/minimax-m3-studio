@@ -3,6 +3,7 @@ import { karaokeReason } from '../services/karaoke';
 import { captionCraftInstruction } from '../services/captionCraft';
 import { englishGenreLyricGuide, englishLyricsPolishInstruction, usableEnglishLyricsEdit, useEnglishLyricsCraft } from '../services/lyricsQuality';
 import { currentSynthesisProfile, synthesisProfileValues, type SynthesisProfile } from '../services/synthesisProfile';
+import { audioExtension } from '../services/audioFile';
 import { AlertTriangle, ChevronDown, CircleAlert, Dices, FileAudio, FolderOpen, Loader2, RotateCcw, Save, Sparkles, Square, Trash2, Upload, Wand2, Settings2 } from 'lucide-react';
 import type { Music3Request, Song } from '../types';
 import { useI18n } from '../context/I18nContext';
@@ -309,7 +310,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [mp3Bitrate, setMp3Bitrate] = useState('320');
   // The engine's own default is 128 kbps, which throws away what the vocoder
   // produced; 320 is the top the encoder offers and costs a few megabytes.
-  const [format, setFormat] = useState<Music3Request['output_format']>('mp3');
+  const [format, setFormat] = useState<Music3Request['output_format']>('flac');
   const [models, setModels] = useState<Record<string, string>>({});
 
   const [setup, setSetup] = useState<SetupStatus | null>(null);
@@ -470,7 +471,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
         // Best-effort: fetch audio into a File so Transcribe can run without re-upload.
         void fetch(song.audioUrl)
           .then(response => response.ok ? response.blob() : Promise.reject())
-          .then(blob => setCoverFile(new File([blob], `${song.title || 'reference'}.mp3`, { type: blob.type || 'audio/mpeg' })))
+          .then(blob => setCoverFile(new File([blob], `${song.title || 'reference'}.${audioExtension(blob.type)}`, { type: blob.type || 'audio/mpeg' })))
           .catch(() => undefined);
       }
     };
@@ -577,7 +578,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     setStylesText(''); setExcludeStyles(''); setVocalGender('auto');
     setDuration(''); setLmSeed(''); setLmCfg(''); setLmTopK(''); setAudioCodes('');
     setSteps(''); setDitCfg(''); setSynthBatch(''); setSeed('');
-    setPeakClip(''); setMp3Bitrate('320'); setFormat('mp3'); setModels({});
+    setPeakClip(''); setMp3Bitrate('320'); setFormat('flac'); setModels({});
     setError(null);
   };
 
@@ -1471,7 +1472,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const resetParameters = () => {
     setDuration(''); setLmSeed(''); setLmCfg(''); setLmTopK(''); setAudioCodes('');
     setSteps(''); setDitCfg(''); setSynthBatch(''); setSeed(''); setRandomizeSeed(true);
-    setPeakClip(''); setMp3Bitrate('320'); setFormat('mp3'); setModels({});
+    setPeakClip(''); setMp3Bitrate('320'); setFormat('flac'); setModels({});
   };
 
   const overBudget = promptTokens > MAX_PROMPT_TOKENS;
@@ -2173,7 +2174,10 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   </div>
                 </Stage>
                 <Stage title={t('stageOutput')} hint={t('stageOutputHint')}>
-                  <SliderRow label={t('peakClipLabel')} value={peakClip} fallback={Number(defaults.peak_clip ?? 10)} min={0} max={30} step={1} onChange={setPeakClip} />
+                  {/* FLAC and float WAV keep the model's own level; the engine normalises only the other formats */}
+                  {format !== 'flac' && format !== 'wav32' && (
+                    <SliderRow label={t('peakClipLabel')} value={peakClip} fallback={Number(defaults.peak_clip ?? 10)} min={0} max={30} step={1} onChange={setPeakClip} />
+                  )}
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <Field label={t('mp3Bitrate')}>
                       <select value={mp3Bitrate || String(defaults.mp3_bitrate ?? 128)} onChange={event => setMp3Bitrate(event.target.value)} disabled={format !== 'mp3'} className={CONTROL}>
@@ -2182,6 +2186,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     </Field>
                     <Field label={t('outputFormat')}>
                       <select value={format} onChange={event => setFormat(event.target.value as Music3Request['output_format'])} className={CONTROL}>
+                        <option value="flac">FLAC</option>
                         <option value="mp3">MP3</option>
                         <option value="wav16">WAV16</option>
                         <option value="wav24">WAV24</option>

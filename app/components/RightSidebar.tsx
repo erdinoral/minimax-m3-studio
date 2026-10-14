@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
 import { openExternal } from '../services/externalLinks';
 import { apiUrl } from '../services/apiBase';
+import { audioExtension } from '../services/audioFile';
 import { SongDropdownMenu } from './SongDropdownMenu';
 import { AlbumCover } from './AlbumCover';
 import { openStems } from '../services/openStems';
@@ -416,7 +417,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpe
                                         const url = URL.createObjectURL(blob);
                                         const link = document.createElement('a');
                                         link.href = url;
-                                        link.download = `${song.title || 'song'}.mp3`;
+                                        link.download = `${song.title || 'song'}.${audioExtension(blob.type)}`;
                                         document.body.appendChild(link);
                                         link.click();
                                         document.body.removeChild(link);

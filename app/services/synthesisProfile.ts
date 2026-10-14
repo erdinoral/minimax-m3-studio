@@ -6,7 +6,7 @@ type AudioFormat = Music3Request['output_format'];
 const PROFILES: Record<Exclude<SynthesisProfile, 'custom'>, { steps: string; format: AudioFormat }> = {
   fast: { steps: '16', format: 'mp3' },
   standard: { steps: '30', format: 'mp3' },
-  lossless: { steps: '30', format: 'wav24' },
+  lossless: { steps: '30', format: 'flac' },
 };
 
 export function synthesisProfileValues(profile: SynthesisProfile) {
@@ -17,6 +17,6 @@ export function currentSynthesisProfile(steps: string, format: AudioFormat): Syn
   const effectiveSteps = steps.trim() || '30';
   if (effectiveSteps === '16' && format === 'mp3') return 'fast';
   if (effectiveSteps === '30' && format === 'mp3') return 'standard';
-  if (effectiveSteps === '30' && format === 'wav24') return 'lossless';
+  if (effectiveSteps === '30' && format === 'flac') return 'lossless';
   return 'custom';
 }

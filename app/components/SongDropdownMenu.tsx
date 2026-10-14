@@ -4,6 +4,7 @@ import { Song } from '../types';
 import { useI18n } from '../context/I18nContext';
 import { openExternal } from '../services/externalLinks';
 import { apiUrl } from '../services/apiBase';
+import { audioExtension } from '../services/audioFile';
 import { openExtendSong } from '../services/openExtend';
 import {
     Clapperboard,
@@ -188,8 +189,7 @@ export const SongDropdownMenu: React.FC<SongDropdownMenuProps> = ({
 
             const link = document.createElement('a');
             link.href = url;
-            const extension = song.audioUrl.split('.').pop()?.toLowerCase() === 'wav' ? 'wav' : 'mp3';
-            link.download = `${song.title || 'song'}.${extension}`;
+            link.download = `${song.title || 'song'}.${audioExtension(blob.type)}`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
