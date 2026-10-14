@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { karaokeReason } from '../services/karaoke';
 import { captionCraftInstruction } from '../services/captionCraft';
+import { englishGenreLyricGuide, englishLyricsPolishInstruction, usableEnglishLyricsEdit, useEnglishLyricsCraft } from '../services/lyricsQuality';
+import { currentSynthesisProfile, synthesisProfileValues, type SynthesisProfile } from '../services/synthesisProfile';
 import { AlertTriangle, ChevronDown, CircleAlert, Dices, FileAudio, FolderOpen, Loader2, RotateCcw, Save, Sparkles, Square, Trash2, Upload, Wand2, Settings2 } from 'lucide-react';
 import type { Music3Request, Song } from '../types';
 import { useI18n } from '../context/I18nContext';
 import { joinCaption, randomExample, splitCaption } from '../services/examples';
 import { transcribeWithSelectedProvider } from '../services/nativeOpenRouter';
-import { appendStylesToCaption, expandStylesForCaption, orderedStyleChips, recordStylesTextChips, styleTextHasChip, toggleStyleInText } from '../services/styleChips';
+import { appendStylesToCaption, basicStylesText, expandStylesForCaption, orderedStyleChips, recordStylesTextChips, splitStoredCaption, styleTextHasChip, toggleStyleInText } from '../services/styleChips';
 import { ChoiceTabs } from './DevicePicker';
 
 /** mm-server rejects empty lyrics; instrumental = section tags, no sung words. */
@@ -544,12 +546,21 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     if (!initialData?.song) return;
     const song = initialData.song;
     setName(song.title || '');
-    const panes = splitCaption(song.style || '');
+    const stored = splitStoredCaption(song.style || '');
+    const panes = splitCaption(stored.caption);
     setGlobalMetadata(panes.globalMetadata);
     setVocalDetails(panes.vocalDetails);
     setArrangement(panes.arrangement);
     setLyrics(song.lyrics || '');
     const settings = (song.generationParams ?? {}) as EngineDefaults;
+    const savedStyles = typeof settings.styles_text === 'string' ? settings.styles_text : stored.styles;
+    setStylesText(basicStylesText(savedStyles));
+    setStyleChipOrder(orderedStyleChips());
+    // Reuse must reveal the editable Styles field. A Cover-origin track is a
+    // normal song draft here; its old reference file is not recoverable.
+    const reusedInstrumental = settings.create_mode === 'instrumental';
+    setMode(reusedInstrumental ? 'instrumental' : 'studio');
+    setInstrumental(reusedInstrumental);
     const asString = (key: string) => (settings[key] === undefined ? '' : String(settings[key]));
     setDuration(asString('duration'));
     setSteps(asString('steps'));
@@ -782,6 +793,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       'Turn the raw Styles note below into a concise, high-quality producer brief for MiniMax Music 3.',
       'Keep every explicit constraint (genre, instruments, BPM, vocal, language, exclusions). Resolve contradictions instead of stacking unrelated genres.',
       'Do not invent a new genre or supporting influence Styles did not name (no phonk, cowbell, memphis, etc. unless present). Stay inside the named styles; replace vague words with concrete groove, performance and production direction.',
+      'Identify a possible lead melodic hook from the named style: short contour and rhythmic gesture, a call-and-response idea, and how it returns in the chorus. Avoid invented exact notes, artist comparisons and generic "catchy melody" filler.',
       `Raw Styles:\n${snap.stylesText.trim()}`,
     ];
     if (snap.excludeStyles.trim()) lines.push(`Exclude / avoid:\n${snap.excludeStyles.trim()}`);
@@ -848,6 +860,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     ];
     if (styles) {
       lines.push(`Styles / sound world (use as theme and mood):\n${styles}`);
+      if (useEnglishLyricsCraft(lang, styles, seed)) lines.push(englishGenreLyricGuide(styles));
     }
     if (seed) {
       lines.push(
@@ -1245,9 +1258,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             );
             if (styleDraft.style_brief?.trim()) {
               working = { ...working, stylesText: styleDraft.style_brief.trim() };
-              setStylesText(working.stylesText);
-              recordStylesTextChips(working.stylesText);
-              setStyleChipOrder(orderedStyleChips());
+              // The producer brief is for the downstream models. Preserve the
+              // short user-entered Styles text in the editor and library.
             }
           }
           let lyricsForRequest = working.instrumental
@@ -1272,6 +1284,24 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               return;
             }
             lyricsForRequest = lyricDraft.lyrics.trim();
+            // The English-only editorial pass is best effort: a slow or malformed
+            // local answer must not prevent an otherwise valid song from starting.
+            if (useEnglishLyricsCraft(working.lyricsLanguage, working.stylesText, snap.lyrics)) {
+              try {
+                const polish = await runAssistantWrite(
+                  'lyrics',
+                  englishLyricsPolishInstruction(lyricsForRequest, working.stylesText, numberOrUndefined(working.duration) ?? 60),
+                  { ...working, lyrics: lyricsForRequest },
+                  ac.signal,
+                  { clearLyrics: true },
+                );
+                if (polish.lyrics && usableEnglishLyricsEdit(lyricsForRequest, polish.lyrics)) {
+                  lyricsForRequest = polish.lyrics.trim();
+                }
+              } catch (error) {
+                if (ac.signal.aborted) throw error;
+              }
+            }
             working = { ...working, lyrics: lyricsForRequest };
             setLyrics(lyricsForRequest);
             updateTempSongForClick?.(tempId, { lyrics: lyricsForRequest, stage: 'stageWritingCaption' });
@@ -1397,7 +1427,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
           request.caption = captionText;
           request.lyrics = lyricsForRequest;
           request.duration_seconds = Math.min(durationForRequest, MAX_DURATION_SECONDS);
-          if (working.stylesText.trim()) request.styles_text = working.stylesText.trim();
+          if (snap.stylesText.trim()) request.styles_text = snap.stylesText.trim();
           else delete request.styles_text;
           if (titleForRequest) request.title = titleForRequest;
           else delete request.title;
@@ -2082,18 +2112,19 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 <label className={LABEL}>{t('renderProfile')}</label>
                 <select
                   className={CONTROL}
-                  value={steps === '16' ? 'fast' : steps === '30' ? 'balanced' : steps === '50' ? 'quality' : 'custom'}
+                  value={currentSynthesisProfile(steps, format)}
                   onChange={event => {
-                    const values: Record<string, string> = { fast: '16', balanced: '30', quality: '50' };
-                    if (values[event.target.value]) setSteps(values[event.target.value]);
+                    const values = synthesisProfileValues(event.target.value as SynthesisProfile);
+                    if (values) { setSteps(values.steps); setFormat(values.format); }
                   }}
                 >
                   <option value="custom">{t('renderCustom')}</option>
                   <option value="fast">{t('renderFast')}</option>
-                  <option value="balanced">{t('renderBalanced')}</option>
-                  <option value="quality">{t('renderQuality')}</option>
+                  <option value="standard">{t('renderBalanced')}</option>
+                  <option value="lossless">{t('renderQuality')}</option>
                 </select>
                 <p className="text-[11px] text-zinc-500">{t('renderProfileHint')}</p>
+                {setup?.profile_files && <p className="text-[11px] text-zinc-500">{t('renderModelHint')}: LM {setup.profile_files.lm_model}, DiT {setup.profile_files.dit_model}</p>}
                 <SliderRow
                   label={t('ditSteps')}
                   value={steps}
@@ -2121,6 +2152,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   step={1}
                   onChange={setSynthBatch}
                 />
+                <p className="text-[11px] leading-4 text-zinc-500">{t('synthesisVariationHint')}</p>
                 <Switch checked={randomizeSeed} onChange={setRandomizeSeed} label={t('randomizeSeed')} />
                 {!randomizeSeed && (
                   <Field label={t('seedShort')}>
@@ -2137,6 +2169,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     <Field label={t('lmSeedShort')}>
                       <input value={lmSeed} onChange={event => setLmSeed(event.target.value)} placeholder={placeholder('lm_seed')} inputMode="numeric" className={CONTROL} />
                     </Field>
+                    <p className="text-[11px] leading-4 text-zinc-500">{t('melodyVariationHint')}</p>
                   </div>
                 </Stage>
                 <Stage title={t('stageOutput')} hint={t('stageOutputHint')}>

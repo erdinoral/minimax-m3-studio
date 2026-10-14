@@ -5,7 +5,10 @@ export function captionCraftInstruction(lyrics: string, duration?: string): stri
   const timeline = sections.map(section => `${section} #${counts[section] = (counts[section] || 0) + 1}`).join(' → ');
   const seconds = Number(duration);
   return [
-    'Enrichment means specific musical decisions, not a longer list of adjectives. Establish one recognizable hook, give it a concrete rhythmic or melodic role, and evolve it within the requested style.',
+    'Melody is the priority: define one short, singable lead motif or instrumental hook in plain musical terms. Specify its rhythmic placement, ascending/descending/repeated contour, phrase length and a clear response phrase. Do not invent exact pitches, key, interval names or time stamps when the user did not provide them.',
+    'Carry the same recognizable motif from verse to chorus; make the chorus hook more memorable through register, phrasing or rhythmic emphasis, not by switching genre. Let the bridge contrast and the final chorus resolve or intensify the motif.',
+    'For vocals, align the strongest melodic accent with the lyrical hook and leave enough breath between phrases. For instrumental music assign the hook only to an instrument already named or stylistically natural; do not request vocals.',
+    'Enrichment means specific musical decisions, not a longer list of adjectives. Give the hook a concrete rhythmic or melodic role and evolve it within the requested style.',
     'Give each existing section an energy level, foreground instrument, bass/percussion behavior and transition into the next section. Describe instrument entries/exits and vocal delivery changes. Keep these decisions consistent across all three fields.',
     'Repeated choruses retain the same hook and identity, with deliberate changes in density, backing vocals or register when the brief permits. Do not make every section a maximum-energy climax.',
     'Describe spatial placement and dynamics in plain musical language; avoid contradictory mixes such as simultaneously dry/intimate and huge/reverberant unless separated by section.',

@@ -32,6 +32,14 @@ export const SupportModal: React.FC<SupportModalProps> = ({ isOpen, onClose }) =
         <div className="space-y-5 p-5 text-sm text-zinc-600 dark:text-zinc-400">
           <p className="leading-6">{t('supportBody')}</p>
           <div className="flex flex-col gap-3">
+            <a
+              href={SUPPORT_LINKS.buyMeACoffee}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="support-rainbow-btn inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-bold tracking-wide text-white"
+            >
+              ☕ Buy me a coffee
+            </a>
             {SUPPORT_LINKS.githubSponsors && (
               <a
                 href={SUPPORT_LINKS.githubSponsors}

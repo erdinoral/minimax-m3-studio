@@ -147,11 +147,11 @@ export function splitStoredCaption(stored: string): { caption: string; styles: s
   const text = (stored || '').replace(/\r\n?/g, '\n').trim();
   if (!text) return { caption: '', styles: '' };
 
-  const stylesLine = text.match(/^Styles:\s*(.+)$/im);
-  const styles = stylesLine?.[1]?.trim() ?? '';
+  const stylesBlock = text.match(/(?:^|\n)Styles:\s*([\s\S]*?)(?=\nInstrument lock \(from Styles|\nExclude:|$)/i);
+  const styles = stylesBlock?.[1]?.trim() ?? '';
 
   let caption = text
-    .replace(/^Styles:\s*.+$/im, '')
+    .replace(/(?:^|\n)Styles:\s*[\s\S]*?(?=\nInstrument lock \(from Styles|\nExclude:|$)/i, '')
     .replace(/\n+Instrument lock \(from Styles[\s\S]*$/i, '')
     .replace(/\n+Exclude:\s*.+$/im, '')
     .replace(/\n{3,}/g, '\n\n')
@@ -159,6 +159,18 @@ export function splitStoredCaption(stored: string): { caption: string; styles: s
 
   if (!caption && !styles) return { caption: text, styles: '' };
   return { caption, styles };
+}
+
+/** Old songs may have saved a full producer brief as `styles_text`.
+ * Keep the basic direction visible without rewriting the stored caption. */
+export function basicStylesText(text: string): string {
+  const normalized = text.replace(/\r\n?/g, '\n').trim();
+  if (normalized.length <= 240 && normalized.split('\n').length <= 3) return normalized;
+  const firstParagraph = normalized.split(/\n\s*\n/)[0].replace(/\s+/g, ' ').replace(/^Styles\s*:\s*/i, '').trim();
+  const firstSentence = firstParagraph.match(/^.{1,220}?(?:[.!?](?=\s|$)|$)/)?.[0]?.trim() || firstParagraph;
+  if (firstSentence.length <= 220) return firstSentence;
+  const cut = firstSentence.slice(0, 220);
+  return `${cut.slice(0, cut.lastIndexOf(' ') > 100 ? cut.lastIndexOf(' ') : 220).trimEnd()}…`;
 }
 
 /**

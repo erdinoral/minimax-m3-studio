@@ -4,6 +4,8 @@
 
 # MiniMax Music3 Studio
 
+[![Buy me a coffee](https://img.shields.io/badge/Buy_me_a_coffee-Support_Erdin-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/erdindev)
+
 **Full-length AI music on your own GPU. One executable — no Python, no Node.js, no launcher.**
 
 [![Project page](https://img.shields.io/badge/🌐_Project_page-timoncool.github.io-7c3aed?style=for-the-badge)](https://timoncool.github.io/MiniMax-Music3-Studio/)

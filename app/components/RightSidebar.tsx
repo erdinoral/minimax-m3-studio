@@ -10,7 +10,7 @@ import { apiUrl } from '../services/apiBase';
 import { SongDropdownMenu } from './SongDropdownMenu';
 import { AlbumCover } from './AlbumCover';
 import { openStems } from '../services/openStems';
-import { splitStoredCaption } from '../services/styleChips';
+import { basicStylesText, splitStoredCaption } from '../services/styleChips';
 import { captionSummary } from '../services/examples';
 
 interface RightSidebarProps {
@@ -534,8 +534,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ song, onClose, onOpe
                             ? String(song.generationParams.styles_text).trim()
                             : '';
                         const split = splitStoredCaption(song.style || '');
-                        const stylesText = fromParams
-                            || split.styles
+                        const stylesText = basicStylesText(fromParams
+                            || split.styles)
                             || (Array.isArray(song.tags)
                                 ? song.tags.filter((tag) => tag && !['music3', 'queued', 'resumed'].includes(tag)).join(', ')
                                 : '');
