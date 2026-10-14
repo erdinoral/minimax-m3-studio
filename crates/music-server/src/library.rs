@@ -50,6 +50,15 @@ pub fn audio_duration_seconds(audio:&[u8],extension:&str,declared_bitrate_kbps:O
  }
 }
 
+/// The note has its own route, so an edit carrying an older copy of the metadata - or none of it,
+/// as a rename does - does not take it away.
+fn kept_note(stored:&serde_json::Value,mut edit:serde_json::Value)->serde_json::Value{
+ let Some(note)=stored.get("note").cloned() else{return edit};
+ if !edit.is_object(){edit=serde_json::json!({})}
+ edit["note"]=note;
+ edit
+}
+
 /// Length from the file's own packets, read without decoding them.
 fn measured_seconds(audio:&[u8],extension:&str)->Option<f64>{
  use symphonia::core::{formats::FormatOptions,io::MediaSourceStream,meta::MetadataOptions,probe::Hint};
@@ -212,7 +221,18 @@ impl Library {
   self.save_song(&song)?;
   Ok(Some(song))
  }
- pub fn update_song(&self,id:&str,input:SongInput)->Result<Option<Song>>{let Some(mut song)=self.get_song(id)? else{return Ok(None)};song.title=input.title;if input.audio_path.is_some(){song.audio_path=input.audio_path};song.caption=input.caption;song.lyrics=input.lyrics;song.metadata=input.metadata;song.generation_settings=input.generation_settings;song.engine_id=input.engine_id;song.profile_id=input.profile_id;if input.replay_request.is_some(){song.replay_request=input.replay_request};if input.audio_codes.is_some(){song.audio_codes=input.audio_codes};song.source=input.source;song.updated_at=now();self.save_song(&song)?;Ok(Some(song))}
+ pub fn update_song(&self,id:&str,input:SongInput)->Result<Option<Song>>{let Some(mut song)=self.get_song(id)? else{return Ok(None)};song.title=input.title;if input.audio_path.is_some(){song.audio_path=input.audio_path};song.caption=input.caption;song.lyrics=input.lyrics;song.metadata=kept_note(&song.metadata,input.metadata);song.generation_settings=input.generation_settings;song.engine_id=input.engine_id;song.profile_id=input.profile_id;if input.replay_request.is_some(){song.replay_request=input.replay_request};if input.audio_codes.is_some(){song.audio_codes=input.audio_codes};song.source=input.source;song.updated_at=now();self.save_song(&song)?;Ok(Some(song))}
+ /// The person's own note on a song, kept with it; an empty one is taken away.
+ pub fn set_song_note(&self,id:&str,note:&str)->Result<Option<Song>>{
+  let Some(mut song)=self.get_song(id)? else{return Ok(None)};
+  let mut metadata=match song.metadata.take(){serde_json::Value::Object(map)=>map,_=>serde_json::Map::new()};
+  let note=note.trim();
+  if note.is_empty(){metadata.remove("note");}else{metadata.insert("note".into(),serde_json::Value::String(note.to_string()));}
+  song.metadata=serde_json::Value::Object(metadata);
+  // a note is not an edit of the track: updated_at, which its audio address follows, stays
+  self.save_song(&song)?;
+  Ok(Some(song))
+ }
  /// Imported MP3s stored before their length was read from the frames carry one guessed from the
  /// file size at 128 kbps; each is measured again, and only a length that disagrees is rewritten.
  pub fn remeasure_imported_mp3s(&self)->Result<usize>{
@@ -255,6 +275,18 @@ Basic Attributes: bpm is 118. key is F# minor, and scale is minor. Darkwave, Syn
  }
 #[test]fn imports_audio_and_full_provenance_atomically(){let root=std::env::temp_dir().join(format!("mm3-library-test-{}",uuid::Uuid::now_v7()));let db=Library::open_at(root.join("library.sqlite"),root.join("media")).unwrap();let result=db.import_generated_song(GeneratedSongInput{title:None,metadata:serde_json::Value::Null,caption:"c".into(),lyrics:"l".into(),generation_settings:serde_json::json!({"seed":1}),replay_request:Some(serde_json::json!({"audio_codes":"1,2,3,4,5,6,7,8","seed":1})),audio_codes:Some(serde_json::json!("1,2,3,4,5,6,7,8")),engine_id:"mm".into(),profile_id:Some("recommended-light".into()),source:"local_generation".into(),audio_extension:"mp3",audio:b"ID3".to_vec()}).unwrap();assert_eq!(db.get_song(&result.song.id).unwrap().unwrap().audio_codes,Some(serde_json::json!("1,2,3,4,5,6,7,8")));assert_eq!(fs::read(db.media_file(&result.audio_filename).unwrap()).unwrap(),b"ID3");let _=fs::remove_dir_all(root);}
 #[test]fn playlist_can_be_read_updated_and_deleted(){let root=std::env::temp_dir().join(format!("mm3-playlist-test-{}",uuid::Uuid::now_v7()));let db=Library::open_at(root.join("library.sqlite"),root.join("media")).unwrap();let song_a=db.create_song(SongInput{title:"A".into(),audio_path:None,caption:String::new(),lyrics:String::new(),metadata:serde_json::Value::Null,generation_settings:serde_json::Value::Null,engine_id:"manual".into(),profile_id:None,replay_request:None,audio_codes:None,source:"manual".into()}).unwrap().id;let song_b=db.create_song(SongInput{title:"B".into(),audio_path:None,caption:String::new(),lyrics:String::new(),metadata:serde_json::Value::Null,generation_settings:serde_json::Value::Null,engine_id:"manual".into(),profile_id:None,replay_request:None,audio_codes:None,source:"manual".into()}).unwrap().id;let created=db.create_playlist(PlaylistInput{name:"Drafts".into(),description:None,song_ids:vec![song_a]}).unwrap();let updated=db.update_playlist(&created.id,PlaylistInput{name:"Finished".into(),description:Some("native".into()),song_ids:vec![song_b.clone()]}).unwrap().unwrap();assert_eq!(updated.name,"Finished");assert_eq!(db.get_playlist(&created.id).unwrap().unwrap().song_ids,vec![song_b]);assert!(db.delete_playlist(&created.id).unwrap());assert!(db.get_playlist(&created.id).unwrap().is_none());let _=fs::remove_dir_all(root);}
+#[test]fn a_note_stays_through_a_rename_and_an_empty_one_takes_it_away(){
+ let root=std::env::temp_dir().join(format!("mm3-note-test-{}",uuid::Uuid::now_v7()));
+ let db=Library::open_at(root.join("library.sqlite"),root.join("media")).unwrap();
+ let input=|title:&str|SongInput{title:title.into(),audio_path:None,caption:String::new(),lyrics:String::new(),metadata:serde_json::json!({"bpm":90}),generation_settings:serde_json::Value::Null,engine_id:"manual".into(),profile_id:None,replay_request:None,audio_codes:None,source:"manual".into()};
+ let id=db.create_song(input("A")).unwrap().id;
+ assert_eq!(db.set_song_note(&id,"  try a slower take ").unwrap().unwrap().metadata["note"],"try a slower take");
+ let renamed=db.update_song(&id,input("B")).unwrap().unwrap();
+ assert_eq!((renamed.metadata["note"].as_str(),renamed.metadata["bpm"].as_i64()),(Some("try a slower take"),Some(90)));
+ assert!(db.set_song_note(&id," ").unwrap().unwrap().metadata.get("note").is_none());
+ assert!(db.set_song_note("missing","x").unwrap().is_none());
+ let _=fs::remove_dir_all(root);
+}
 #[test]fn measures_wav_duration_from_the_header_and_mp3_from_its_bitrate(){
  // 1 second of 44.1 kHz stereo 16-bit PCM.
  let mut wav=Vec::new();

@@ -28,6 +28,8 @@ export interface Song {
   openrouterModel?: string | null;
   generationTime?: number;
   lrcContent?: string;
+  /** The person's own note on the song, kept in the library. */
+  note?: string;
   bpm?: number;
   keyScale?: string;
   timeSignature?: string;

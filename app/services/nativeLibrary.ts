@@ -88,6 +88,7 @@ export function mapNativeLibrarySong(song: NativeLibrarySong): Song {
     // Karaoke timings, when someone has made them. The video studio and the
     // LRC download have always read this field.
     lrcContent: stringMetadata(metadata, 'lrc'),
+    note: stringMetadata(metadata, 'note'),
   };
 }
 
@@ -168,6 +169,17 @@ export async function updateNativeSong(existing: Song, update: Partial<NativeSon
   });
   if (!response.ok) throw new Error(`Native song update failed (${response.status})`);
   return mapNativeLibrarySong(await response.json());
+}
+
+/** The person's note on a song, kept in the library; empty takes it away. */
+export async function setNativeSongNote(id: string, note: string): Promise<Song> {
+  const response = await fetch(`/v1/library/songs/${encodeURIComponent(id)}/note`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note }),
+  });
+  if (!response.ok) throw new Error(`Saving the note failed (${response.status})`);
+  return mapNativeLibrarySong(await response.json() as NativeLibrarySong);
 }
 
 export async function deleteNativeSong(id: string): Promise<void> {

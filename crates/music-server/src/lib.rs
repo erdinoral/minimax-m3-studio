@@ -613,6 +613,7 @@ pub async fn serve() -> anyhow::Result<()> {
         .route("/v1/library/songs", get(library_songs).post(create_library_song))
         .route("/v1/library/import", post(import_library_audio))
         .route("/v1/library/songs/{id}", get(library_song).put(update_library_song).delete(delete_library_song))
+        .route("/v1/library/songs/{id}/note", axum::routing::put(set_library_song_note))
         .route("/v1/library/media/{song_id}", get(library_media))
         .route("/v1/library/songs/{id}/cover", get(library_cover).put(store_library_cover))
         .route("/v1/library/playlists", get(library_playlists).post(create_library_playlist))
@@ -1980,6 +1981,21 @@ async fn import_library_audio(State(state): State<AppState>, mut multipart: Mult
     let song = state.library.import_audio_song(library::AudioImportInput { title, caption, lyrics, metadata: serde_json::json!({"imported_filename": filename, "duration_seconds": duration}), generation_settings: Value::Null, engine_id: "imported-audio".into(), profile_id: None, source: "audio_import".into(), audio_extension: extension, audio }).map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))?.song;
     Ok((StatusCode::CREATED, Json(song)))
 }
+#[derive(Deserialize)]
+struct NoteInput {
+    note: String,
+}
+
+/// The person's own note on a song, kept with it.
+async fn set_library_song_note(State(state): State<AppState>, Path(id): Path<String>, Json(input): Json<NoteInput>) -> Result<Json<library::Song>, (StatusCode, Json<ApiError>)> {
+    state
+        .library
+        .set_song_note(&id, &input.note)
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map(Json)
+        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "Song not found".into()))
+}
+
 async fn update_library_song(State(state):State<AppState>,Path(id):Path<String>,Json(input):Json<library::SongInput>)->Result<Json<library::Song>,(StatusCode,Json<ApiError>)>{
     let song = state.library.update_song(&id,input).map_err(|e|api_error(StatusCode::BAD_REQUEST,e.to_string()))?.ok_or_else(||api_error(StatusCode::NOT_FOUND,"Song not found".into()))?;
     // A rename is a title change, and the file carries the title.
