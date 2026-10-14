@@ -39,7 +39,15 @@ ask it to.
 
 - **Generate music locally** with the complete Music3 component set: caption, lyrics,
   duration, DiT steps, LM CFG and top-k, DiT CFG, peak clip, separate DiT and LM seeds,
-  several songs per prompt and several variations per song, MP3 or 16/24/32-bit WAV.
+  several songs per prompt and several variations per song. Songs are kept as lossless
+  FLAC by default, at the level the model made them (no peak clip); MP3 or 16/24/32-bit
+  WAV are a choice away.
+- **A prompt check while you write.** The engine's own tokenizer counts caption + lyrics
+  against the model's 5000-token budget, lines whose words follow a section tag on the
+  same line (the engine never sings them) are pointed out, and a caption that never says
+  who sings is flagged. An over-long prompt is refused with how many tokens to cut.
+- **A note on every song**, and its parameters back to the form, shown as JSON or saved
+  to a file.
 - **Reproduce any track exactly.** Every generation stores its request and its audio codes,
   so a track can be re-rendered deterministically, or re-rendered with different steps,
   seed or output format.
@@ -64,8 +72,9 @@ ask it to.
 - **Split a finished track into six stems** — drums, bass, other, vocals, guitar and
   piano — with HT-Demucs on the GPU, or on the CPU when you prefer. The model is an
   optional download like everything else.
-- **Export files that carry their own data** — MP3s are written with ID3v2.4: title,
-  artist, album, genre, tempo, the lyrics and the cover art.
+- **Export files that carry their own data** — MP3s are written with ID3v2.4 and FLACs
+  with Vorbis comments and a front-cover picture: title, artist, album, genre, tempo, the
+  lyrics and the cover art.
 - **Choose your own quality/VRAM trade-off** in the model manager. Nothing downloads by
   itself.
 
@@ -269,7 +278,8 @@ scripts\build-minimax-runtime.ps1 -OutputDirectory .\build\engine -RuntimeBacken
 Every `engines/patches/*.patch` is applied on top of the pinned commit. The continuation
 patch adds `continue_codes` / `continue_min` to the engine's request and reports
 `"features": ["continue_codes"]` from `GET /props`; the studio only offers **Extend** when
-the running engine says so.
+the running engine says so. The pinned commit also provides `POST /tokenize`, which the
+prompt check uses; with an older engine the count falls back to an estimate marked `≈`.
 
 Without a system-wide CUDA toolkit, `scripts\fetch-cuda-toolkit.ps1` assembles a
 build-only one from NVIDIA's redistributable archives under `cache\` (no installer, the

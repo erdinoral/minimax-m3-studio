@@ -4298,17 +4298,22 @@ struct PromptCheckRequest {
 /// What the engine would do with a caption and lyrics before it is asked to sing them: the
 /// lyrics lines whose words it drops, a song that never names its singer's gender, and the
 /// prompt against the 5000-token budget. A running engine counts the tokens itself; without
-/// one the count is an estimate and says so.
+/// one, or with one too old to count, the count is an estimate and says so.
 async fn check_music_prompt(State(state): State<AppState>, Json(request): Json<PromptCheckRequest>) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
-    let (tokens, exact) = if state.music_server.health().await {
-        let counted = state
-            .music_server
-            .tokenize(&request.caption, &request.lyrics)
-            .await
-            .map_err(|error| api_error(StatusCode::BAD_GATEWAY, error.to_string()))?;
-        (counted, true)
+    let counted = if state.music_server.health().await {
+        match state.music_server.tokenize(&request.caption, &request.lyrics).await {
+            Ok(tokens) => Some(tokens),
+            Err(error) => {
+                eprintln!("[prompt-check] the engine did not count the prompt: {error:#}");
+                None
+            }
+        }
     } else {
-        (prompt_check::estimate_tokens(&request.caption, &request.lyrics), false)
+        None
+    };
+    let (tokens, exact) = match counted {
+        Some(tokens) => (tokens, true),
+        None => (prompt_check::estimate_tokens(&request.caption, &request.lyrics), false),
     };
     let found = prompt_check::check(&request.caption, &request.lyrics, request.instrumental, tokens, exact);
     Ok(Json(serde_json::to_value(found).map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?))

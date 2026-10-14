@@ -1349,7 +1349,7 @@ export const tr = {
     promptBudget: 'Prompt bütçesi',
     promptBudgetShort: 'Token',
     promptTooLong: 'Prompt çok uzun — kısalt.',
-    promptBudgetEstimated: 'Tahmini: motor çalışmıyor, servis uzunluğa göre saydı.',
+    promptBudgetEstimated: 'Tahmini: motor çalışmıyor ya da sayamıyor, servis uzunluğa göre saydı.',
     lyricsWordsOnTagLine: '{line}. satır: etiketten sonraki sözler söylenmez — “{text}”. Bir sonraki satıra taşıyın.',
     captionVocalGenderMissing: 'Vokal ayrıntıları kimin söylediğini belirtmiyor (erkek, kadın, ses tipi): ses şansa kalır.',
     captionRequired: 'Üretmeden önce açıklamayı doldur.',

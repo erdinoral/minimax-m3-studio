@@ -1349,7 +1349,7 @@ export const en = {
     promptBudget: 'Prompt budget',
     promptBudgetShort: 'caption + lyrics',
     promptTooLong: 'The caption and lyrics exceed the 5000 token prompt budget; shorten them.',
-    promptBudgetEstimated: 'Estimated: the engine is not running, so the service counted by length.',
+    promptBudgetEstimated: 'Estimated: the engine is not running or cannot count, so the service counted by length.',
     lyricsWordsOnTagLine: 'Line {line}: the words after the tag are not sung — “{text}”. Move them to the next line.',
     captionVocalGenderMissing: 'The vocal details do not say who sings (male, female, a voice type): the voice is left to chance.',
     captionRequired: 'Fill in the description before generating.',
