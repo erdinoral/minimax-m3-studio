@@ -683,7 +683,7 @@ pub async fn serve() -> anyhow::Result<()> {
                         // "Listening on". Written once, not once a cycle.
                         music_engine::mm_server::note_in_log("the engine stopped answering; restarting it");
                     }
-                    match restart_engine(&state).await {
+                    match start_engine_if_down(&state).await {
                         Ok(()) => complained = false,
                         Err(error) => {
                             // Say it once per failure, not once every few
@@ -2165,6 +2165,17 @@ async fn restart_local_engine(State(state): State<AppState>) -> Result<Json<Valu
 
 async fn restart_engine(state: &AppState) -> Result<(), String> {
     let _gpu = state.gpu_handoff.lock().await;
+    restart_engine_under_gpu_lock(state).await
+}
+
+/// The supervisor's start: the engine may have come up while this waited for the card - a
+/// song or an extension asked for it once a cover gave the card back - and restarting it
+/// then would drop the job it had just taken.
+async fn start_engine_if_down(state: &AppState) -> Result<(), String> {
+    let _gpu = state.gpu_handoff.lock().await;
+    if state.music_server.health().await {
+        return Ok(());
+    }
     restart_engine_under_gpu_lock(state).await
 }
 
@@ -4583,12 +4594,20 @@ async fn music_job_status(
     {
         return Ok(Json(existing));
     }
-    let remote = state.music_server.job(&job_id).await.map_err(|error| {
-        api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!("mm-server status is unavailable: {error}"),
-        )
-    })?;
+    let remote = match state.music_server.job(&job_id).await {
+        Ok(remote) => remote,
+        // An engine that restarted has forgotten its jobs. Left queued, the song would be
+        // polled for ever and covers would wait on it; it is over, and says why.
+        Err(error) if error.to_string().starts_with("mm-server returned 404") => {
+            let mut jobs = state.jobs.write().await;
+            let job = jobs.get_mut(&job_id).ok_or_else(|| api_error(StatusCode::NOT_FOUND, "Music job was not found.".into()))?;
+            job.status = MusicJobStatus::Failed;
+            job.phase = MusicJobPhase::Failed;
+            job.message = "The engine restarted and lost this song before it was finished. Make it again.".into();
+            return Ok(Json(job.clone()));
+        }
+        Err(error) => return Err(api_error(StatusCode::SERVICE_UNAVAILABLE, format!("mm-server status is unavailable: {error}"))),
+    };
     let imported = if remote.status == "done" {
         Some(import_completed_mm_result(&state, &existing, &job_id).await)
     } else { None };
