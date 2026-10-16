@@ -20,6 +20,7 @@ use serde_json::Value;
 /// fields carry exactly the labelled structure the model expects.
 /// The two extras every draft carries: a name for the track and a sentence the
 /// image model can draw from.
+const EXTRA_KEYS: [&str; 3] = ["title", "cover_prompt", "duration_seconds"];
 const EXTRA: &str = "title: a short song title, two to five words, no quotation marks, in the language of the lyrics. cover_prompt: one sentence describing a cover image for this track - a scene, not a poster; no text, no lettering, no logos. duration_seconds: how long a track of this genre and arrangement normally runs, in seconds, between 30 and 360.";
 
 /// Caption must follow Styles/brief only — never invent a competing genre.
@@ -440,25 +441,31 @@ fn flatten_part(value: &Value, list_separator: &str) -> Option<String> {
 /// so a local model cannot answer with prose, with a fenced block, or with a
 /// list where a string belongs - the three ways it used to come back unusable.
 pub fn draft_schema(required: &[&str]) -> Value {
-    // A minimum length, not just a type: "required" only forces the key to be
-    // present, and a model that answers with an empty string satisfies that
-    // while leaving the field blank on screen.
-    let text = serde_json::json!({ "type": "string", "minLength": 40 });
-    let lyric = serde_json::json!({ "type": "string", "minLength": 20 });
-    let short = serde_json::json!({ "type": "string", "minLength": 3 });
+    // The grammar fixes the keys in the order they appear here, so they follow
+    // the order the instructions name them. A key the model wants to write
+    // after one it already passed would otherwise end up inside a string.
+    let mut keys: Vec<&str> = required.to_vec();
+    if required.contains(&"arrangement") {
+        keys.extend(EXTRA_KEYS);
+    }
+    let mut properties = serde_json::Map::new();
+    for key in &keys {
+        // A minimum length, not just a type: "required" only forces the key to
+        // be present, and a model that answers with an empty string satisfies
+        // that while leaving the field blank on screen.
+        let shape = match *key {
+            "lyrics" => serde_json::json!({ "type": "string", "minLength": 20 }),
+            "title" => serde_json::json!({ "type": "string", "minLength": 3, "maxLength": 80 }),
+            "cover_prompt" => serde_json::json!({ "type": "string", "minLength": 3 }),
+            "duration_seconds" => serde_json::json!({ "type": "number" }),
+            _ => serde_json::json!({ "type": "string", "minLength": 40 }),
+        };
+        properties.insert((*key).to_string(), shape);
+    }
     serde_json::json!({
         "type": "object",
-        "properties": {
-            "style_brief": text,
-            "lyrics": lyric,
-            "global_metadata": text,
-            "vocal_details": text,
-            "arrangement": text,
-            "title": short,
-            "cover_prompt": short,
-            "duration_seconds": { "type": "number" },
-        },
-        "required": required,
+        "properties": properties,
+        "required": keys,
         "additionalProperties": false,
     })
 }
@@ -539,7 +546,13 @@ pub fn chat_body_constrained(
         body["reasoning"] = serde_json::json!({ "effort": effort, "exclude": true });
     }
     if let Some(schema) = schema {
-        body["response_format"] = serde_json::json!({ "type": "json_schema", "schema": schema });
+        // llama-server reads a `json_schema` response format only from
+        // `json_schema.schema`; a schema placed beside `type` is silently
+        // dropped and the model samples unconstrained.
+        body["response_format"] = serde_json::json!({
+            "type": "json_schema",
+            "json_schema": { "name": "draft", "strict": true, "schema": schema },
+        });
     }
 
     body
@@ -893,6 +906,28 @@ neon on the wet road"));
         let schema = super::draft_schema(&["global_metadata"]);
         assert_eq!(schema["properties"]["global_metadata"]["minLength"], 40);
         assert_eq!(schema["required"][0], "global_metadata");
+    }
+
+    #[test]
+    fn the_schema_goes_where_llama_server_reads_it() {
+        let body = chat_body_constrained("m", "s", "u", None, None, Some(super::draft_schema(&["lyrics"])));
+        assert_eq!(body["response_format"]["type"], "json_schema");
+        assert_eq!(body["response_format"]["json_schema"]["schema"]["required"][0], "lyrics");
+        assert!(body["response_format"].get("schema").is_none());
+    }
+
+    #[test]
+    fn the_schema_keeps_the_order_the_instructions_name() {
+        let (_, required) = super::instructions(&request(AssistTarget::All));
+        let schema = super::draft_schema(required);
+        let keys: Vec<&str> = schema["properties"].as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(keys, ["lyrics", "global_metadata", "vocal_details", "arrangement", "title", "cover_prompt", "duration_seconds"]);
+        let sent = serde_json::to_string(&schema).unwrap();
+        assert!(sent.find("\"lyrics\"").unwrap() < sent.find("\"arrangement\"").unwrap());
+        assert_eq!(schema["required"].as_array().unwrap().len(), 7);
+
+        let lyrics_only = super::draft_schema(&["lyrics"]);
+        assert_eq!(lyrics_only["properties"].as_object().unwrap().len(), 1);
     }
 
     #[test]
