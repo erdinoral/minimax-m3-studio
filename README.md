@@ -327,6 +327,14 @@ and `TAURI_UPDATER_PUBKEY` if they are set, and otherwise from
 `%USERPROFILE%\.tauri\mm3-release.key`, its `.pub`, and `.password` beside them. It stops
 if it can find the key neither way. Model weights are never included in an installer.
 
+## Support & Sponsors
+
+Bugs and ideas: sidebar **Support** in the studio, or [GitHub Issues](https://github.com/erdinoral/minimax-m3-studio/issues). Use **Bug** for breakage and **Idea** for improvements. To support this fork, [Buy me a coffee](https://buymeacoffee.com/erdindev).
+
+**Diamond204a** — our first sponsor, with **$25** in support. Their feedback also helps improve the studio. Thank you!
+
+**Corey** — **$5** in support. Thank you!
+
 ## Other Projects by [@timoncool](https://github.com/timoncool)
 
 | Project | Description |

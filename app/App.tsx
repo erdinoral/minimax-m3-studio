@@ -12,6 +12,7 @@ import { ExtendModal } from './components/ExtendModal';
 import { VideoGeneratorModal } from './components/VideoGeneratorModal';
 import { SettingsModal } from './components/SettingsModal';
 import { SupportModal } from './components/SupportModal';
+import { SponsorBanner } from './components/SponsorBanner';
 import { Song, Music3Request, Music3Job, View, Playlist } from './types';
 // Resizable panel hook
 function useResizablePanel(key: string, defaultWidth: number, min: number, max: number, direction: 'left' | 'right' = 'left') {
@@ -1672,6 +1673,8 @@ function AppContent() {
           {renderContent()}
         </main>
       </div>
+
+      <SponsorBanner />
 
       {(currentSong || selectedSong) && <Player
         currentSong={currentSong || selectedSong}

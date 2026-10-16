@@ -97,6 +97,68 @@ summary {
         filter: brightness(1.06);
       }
 
+      .sponsor-banner {
+        display: block;
+        position: relative;
+        flex: 0 0 30px;
+        height: 30px;
+        min-width: 0;
+        overflow: hidden;
+        border-top: 1px solid #ef444455;
+        background: linear-gradient(180deg, #190c16, #080b13);
+        box-shadow: inset 0 0 12px #ff304012;
+        text-decoration: none;
+      }
+
+      .sponsor-banner.is-showing {
+        border-top-color: #ff5366aa;
+        box-shadow: inset 0 0 16px #ff304025;
+        animation: sponsor-neon-wake 0.45s ease-out;
+      }
+
+      .sponsor-banner-message {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 100%;
+        display: flex;
+        align-items: center;
+        white-space: nowrap;
+        color: #ffd9dd;
+        font: 700 12px/30px ui-monospace, monospace;
+        letter-spacing: 0.04em;
+        text-shadow: 0 0 3px #ff304833;
+        visibility: hidden;
+      }
+
+      .sponsor-banner.is-showing .sponsor-banner-message {
+        visibility: visible;
+        animation: sponsor-sign-pass 7s linear both;
+      }
+
+      @keyframes sponsor-sign-pass {
+        from { left: 100%; transform: translateX(0); }
+        to { left: 0; transform: translateX(-100%); }
+      }
+
+      @keyframes sponsor-neon-wake {
+        0% { opacity: 0.55; }
+        25% { opacity: 1; }
+        40% { opacity: 0.8; }
+        100% { opacity: 1; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .sponsor-banner.is-showing { animation: none; }
+        .sponsor-banner.is-showing .sponsor-banner-message {
+          animation: none;
+          left: 8px;
+          right: 8px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+      }
+
       .music-bar-anim {
         animation: music-bars 1s ease-in-out infinite;
       }
